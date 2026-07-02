@@ -1,9 +1,8 @@
+decoded request: {ID:0 UserID:7 Items:[boat-airdopes] Coupon:}
 {
-  "id": 1,
-  "text": "hello",
-  "tags": [
-    "go",
-    "demo"
+  "id": 1042,
+  "user_id": 7,
+  "items": [
+    "boat-airdopes"
   ]
 }
-{ID:2 Text:from the wire Tags:[]}

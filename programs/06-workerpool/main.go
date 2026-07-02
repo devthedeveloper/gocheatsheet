@@ -1,4 +1,4 @@
-// worker pool: N goroutines chew through a job queue.
+// worker pool: 9 newsletters, only 3 SMTP connections.
 package main
 
 import (
@@ -9,37 +9,31 @@ import (
 
 func main() {
 	start := time.Now()
-	jobs := make(chan int)
-	results := make(chan string)
+	queue := make(chan string)
 	var wg sync.WaitGroup
 
-	for w := 1; w <= 3; w++ { // exactly 3 workers
+	for conn := 1; conn <= 3; conn++ { // 3 connections
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for j := range jobs { // until closed
-				time.Sleep(100 * time.Millisecond)
-				results <- fmt.Sprintf(
-					"worker %d finished job %d", w, j)
+			for email := range queue { // until closed
+				time.Sleep(100 * time.Millisecond) // send
+				fmt.Printf("conn %d sent → %s\n",
+					conn, email)
 			}
 		}()
 	}
 
-	go func() { // feed 9 jobs, then close
-		for j := 1; j <= 9; j++ {
-			jobs <- j
-		}
-		close(jobs)
-	}()
-
-	go func() { // close results when workers exit
-		wg.Wait()
-		close(results)
-	}()
-
-	for r := range results {
-		fmt.Println(r)
+	users := []string{
+		"asha", "ravi", "meera", "arjun", "divya",
+		"karan", "nisha", "rahul", "sneha",
 	}
-	fmt.Printf("9 jobs × 100ms on 3 workers = %v\n",
+	for _, u := range users {
+		queue <- u + "@example.com"
+	}
+	close(queue) // newsletter fully queued
+	wg.Wait()
+
+	fmt.Printf("9 emails on 3 connections = %v\n",
 		time.Since(start).Round(10*time.Millisecond))
 }

@@ -1,4 +1,4 @@
-// json: struct ⇄ JSON, both directions.
+// json: the request and response bodies of POST /orders.
 package main
 
 import (
@@ -6,26 +6,24 @@ import (
 	"fmt"
 )
 
-type Note struct {
-	ID   int      `json:"id"`
-	Text string   `json:"text"`
-	Tags []string `json:"tags,omitempty"`
+type Order struct {
+	ID     int      `json:"id"`
+	UserID int      `json:"user_id"`
+	Items  []string `json:"items"`
+	Coupon string   `json:"coupon,omitempty"`
 }
 
 func main() {
-	// struct → JSON (marshal)
-	n := Note{ID: 1, Text: "hello",
-		Tags: []string{"go", "demo"}}
-	out, _ := json.MarshalIndent(n, "", "  ")
-	fmt.Println(string(out))
-
-	// JSON → struct (unmarshal)
-	raw := `{"id": 2, "text": "from the wire"}`
-	var m Note
-	if err := json.Unmarshal([]byte(raw), &m); err != nil {
-		panic(err)
+	// what the client POSTs
+	body := `{"user_id": 7, "items": ["boat-airdopes"]}`
+	var in Order
+	if err := json.Unmarshal([]byte(body), &in); err != nil {
+		panic(err) // in a handler: respond 400
 	}
-	fmt.Printf("%+v\n", m)
-	// Tags omitted in input → nil slice,
-	// and omitempty hid it in the output
+	fmt.Printf("decoded request: %+v\n", in)
+
+	// what your handler sends back
+	in.ID = 1042 // the DB assigned it
+	out, _ := json.MarshalIndent(in, "", "  ")
+	fmt.Println(string(out))
 }

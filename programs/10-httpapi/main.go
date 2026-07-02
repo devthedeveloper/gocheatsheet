@@ -1,4 +1,4 @@
-// http: a JSON API server AND its client, one file.
+// http: GET /orders/{id} — the service AND its caller.
 package main
 
 import (
@@ -8,32 +8,34 @@ import (
 	"time"
 )
 
-type Pong struct {
-	Msg string `json:"msg"`
-	N   int    `json:"n"`
+type Order struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
 }
 
 func main() {
 	mux := http.NewServeMux()
-	n := 0
-	mux.HandleFunc("GET /ping",
+	mux.HandleFunc("GET /orders/{id}",
 		func(w http.ResponseWriter, r *http.Request) {
-			n++
-			json.NewEncoder(w).Encode(Pong{"pong", n})
+			id := r.PathValue("id")
+			// (a real handler queries the DB here)
+			json.NewEncoder(w).Encode(
+				Order{ID: id, Status: "shipped"})
 		})
 
-	go http.ListenAndServe(":8090", mux) // serve…
-	time.Sleep(100 * time.Millisecond)   // …boot up
+	go http.ListenAndServe(":8090", mux) // the service
+	time.Sleep(100 * time.Millisecond)   // let it boot
 
-	for range 3 { // …and call ourselves
-		res, err := http.Get(
-			"http://localhost:8090/ping")
-		if err != nil {
-			panic(err)
-		}
-		var p Pong
-		json.NewDecoder(res.Body).Decode(&p)
-		res.Body.Close()
-		fmt.Printf("%d ← %+v\n", res.StatusCode, p)
+	// another service asks about order 1042
+	res, err := http.Get(
+		"http://localhost:8090/orders/1042")
+	if err != nil {
+		panic(err)
 	}
+	defer res.Body.Close()
+
+	var o Order
+	json.NewDecoder(res.Body).Decode(&o)
+	fmt.Println("status code:", res.StatusCode)
+	fmt.Printf("order: %+v\n", o)
 }

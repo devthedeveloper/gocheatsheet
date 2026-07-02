@@ -1,10 +1,10 @@
-worker 1 finished job 3
-worker 2 finished job 2
-worker 3 finished job 1
-worker 3 finished job 6
-worker 2 finished job 5
-worker 1 finished job 4
-worker 2 finished job 9
-worker 1 finished job 8
-worker 3 finished job 7
-9 jobs × 100ms on 3 workers = 300ms
+conn 3 sent → asha@example.com
+conn 1 sent → ravi@example.com
+conn 2 sent → meera@example.com
+conn 2 sent → divya@example.com
+conn 3 sent → arjun@example.com
+conn 1 sent → karan@example.com
+conn 2 sent → rahul@example.com
+conn 3 sent → nisha@example.com
+conn 1 sent → sneha@example.com
+9 emails on 3 connections = 300ms

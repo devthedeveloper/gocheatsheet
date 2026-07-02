@@ -1,11 +1,12 @@
-# Runnable Go programs
+# Runnable Go programs — real backend tasks
 
-Twelve tiny programs, one concept each. Companion to
-[the runnable sheet](https://devthedeveloper.github.io/gocheatsheet/programs.html).
+Twelve tiny programs, one concept each, framed as everyday backend work:
+sending emails, aggregating services, wallet credits, checkout fan-out.
+Companion to [the runnable sheet](https://devthedeveloper.github.io/gocheatsheet/programs.html).
 
 ```sh
 go run ./01-goroutines
-go run -race ./03-mutex   # watch Go catch the data race
+go run -race ./03-mutex   # watch Go catch the wallet race
 ```
 
 `11-mysql` needs a database:

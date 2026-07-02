@@ -1,4 +1,4 @@
-// goroutines: run things concurrently with one keyword.
+// goroutines: three signup emails, sent at the same time.
 package main
 
 import (
@@ -6,21 +6,21 @@ import (
 	"time"
 )
 
-func say(name string) {
-	for i := 1; i <= 3; i++ {
-		fmt.Println(name, i)
-		time.Sleep(10 * time.Millisecond)
-	}
+func sendEmail(to string) {
+	fmt.Println("connecting to SMTP for", to)
+	time.Sleep(150 * time.Millisecond) // SMTP round-trip
+	fmt.Println("✉️  delivered to", to)
 }
 
 func main() {
-	go say("A") // fires and returns instantly
-	go say("B")
+	// three users just signed up
+	go sendEmail("asha@example.com")
+	go sendEmail("ravi@example.com")
 
-	say("main") // runs in the main goroutine,
-	//             keeping the program alive
+	sendEmail("meera@example.com") // main sends one too —
+	// which keeps the program alive long enough
 
 	// when main returns, ALL goroutines die.
-	// delete the say("main") line and watch
-	// A and B never get a chance to print.
+	// make main's send a `go` too and the program
+	// exits instantly: zero emails delivered.
 }

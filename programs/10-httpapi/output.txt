@@ -1,3 +1,2 @@
-200 ← {Msg:pong N:1}
-200 ← {Msg:pong N:2}
-200 ← {Msg:pong N:3}
+status code: 200
+order: {ID:1042 Status:shipped}

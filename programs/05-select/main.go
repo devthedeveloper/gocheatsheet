@@ -1,4 +1,4 @@
-// select: wait on several channels — first ready wins.
+// select: cache vs DB — serve the fastest, respect the budget.
 package main
 
 import (
@@ -6,28 +6,35 @@ import (
 	"time"
 )
 
-func worker(name string, d time.Duration) <-chan string {
+func cacheGet(key string) <-chan string {
 	ch := make(chan string, 1)
 	go func() {
-		time.Sleep(d)
-		ch <- name + " finished"
+		time.Sleep(5 * time.Millisecond) // redis is quick
+		ch <- key + " → 3 items (cache)"
+	}()
+	return ch
+}
+
+func dbQuery(key string) <-chan string {
+	ch := make(chan string, 1)
+	go func() {
+		time.Sleep(3 * time.Second) // db is having a day
+		ch <- key + " → 3 items (db)"
 	}()
 	return ch
 }
 
 func main() {
-	fast := worker("fast", 50*time.Millisecond)
-	slow := worker("slow", 5*time.Second)
+	cache := cacheGet("cart:42")
+	db := dbQuery("cart:42")
 
-	for {
-		select {
-		case msg := <-fast:
-			fmt.Println(msg)
-		case msg := <-slow:
-			fmt.Println(msg) // never happens
-		case <-time.After(200 * time.Millisecond):
-			fmt.Println("⏰ timeout — not waiting 5s for slow")
-			return
-		}
+	select {
+	case v := <-cache:
+		fmt.Println("hit:", v)
+	case v := <-db:
+		fmt.Println("hit:", v)
+	case <-time.After(100 * time.Millisecond):
+		fmt.Println("both slow → 504, don't hang")
 	}
+	fmt.Println("responded within the 100ms budget ✓")
 }

@@ -1,22 +1,26 @@
-// channels: typed pipes between goroutines.
+// channels: uploaded files handed to the virus scanner.
 package main
 
 import "fmt"
 
 func main() {
-	ch := make(chan string)
+	uploads := make(chan string) // the hand-off point
 
-	go func() { // the sender
-		menu := []string{"🍎", "🍌", "🍇"}
-		for _, fruit := range menu {
-			fmt.Println("sending", fruit)
-			ch <- fruit // blocks until received
+	go func() { // goroutine A: the upload receiver
+		files := []string{
+			"invoice_jan.pdf",
+			"invoice_feb.pdf",
+			"salary_slip.pdf",
 		}
-		close(ch) // sender says: no more
+		for _, f := range files {
+			fmt.Println("upload complete:", f)
+			uploads <- f // hand to the scanner
+		}
+		close(uploads) // no more uploads today
 	}()
 
-	for f := range ch { // receive until closed
-		fmt.Println("got    ", f)
+	for f := range uploads { // main: the scanner
+		fmt.Println("  virus-scanned:", f)
 	}
-	fmt.Println("channel drained, bye")
+	fmt.Println("all uploads processed ✓")
 }

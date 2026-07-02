@@ -1,4 +1,4 @@
-// mutex: what a data race costs, and the fix.
+// mutex: 100 concurrent clients earn ₹1 cashback per hit.
 package main
 
 import (
@@ -7,30 +7,30 @@ import (
 )
 
 func main() {
-	const workers, bumps = 100, 1000
+	const clients, hits = 100, 1000
 	var wg sync.WaitGroup
 
-	// BROKEN: 100 goroutines bump a plain int
-	unsafe := 0
-	for range workers {
+	// BROKEN: every request credits the wallet, no lock
+	balance := 0
+	for range clients {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for range bumps {
-				unsafe++ // RACE: read+write
+			for range hits {
+				balance++ // RACE: read, add, write
 			}
 		}()
 	}
 	wg.Wait()
 
-	// FIXED: same thing behind a mutex
+	// FIXED: same traffic, one mutex
 	var mu sync.Mutex
 	safe := 0
-	for range workers {
+	for range clients {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for range bumps {
+			for range hits {
 				mu.Lock()
 				safe++
 				mu.Unlock()
@@ -39,8 +39,7 @@ func main() {
 	}
 	wg.Wait()
 
-	fmt.Println("expected:      ", workers*bumps)
-	fmt.Println("without mutex: ", unsafe, "😱")
-	fmt.Println("with mutex:    ", safe, "✓")
-	// try: go run -race . → the race is caught
+	fmt.Println("should be: ₹", clients*hits)
+	fmt.Println("no mutex:  ₹", balance, "— money vanished 😱")
+	fmt.Println("mutex:     ₹", safe, "✓")
 }

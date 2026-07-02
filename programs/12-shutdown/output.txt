@@ -1,3 +1,3 @@
-serving on :8091
-SIGTERM received, draining…
-in-flight requests done, clean exit ✓
+orders API serving on :8091
+SIGTERM: stop taking orders, finish the open ones…
+all in-flight requests served — clean exit ✓

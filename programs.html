@@ -298,10 +298,11 @@ footer a{color:var(--c-back)}
       </svg>
       <span class="eyebrow">Team cheat sheet · Runnable edition · Go 1.25</span>
       <h1>Don't just read Go — <span class="hl a">run it</span> and <span class="hl b">break it</span></h1>
-      <p class="sub">Twelve complete programs, each small enough to read in a minute.
+      <p class="sub">Twelve complete programs, each one a task off a backend dev's
+      daily list — welcome emails, a dashboard endpoint, wallet cashback, checkout.
       Every terminal output below is <em>real</em>, captured from an actual run —
-      including the data race losing 66,000 increments. Copy one, run it, then
-      change something and see what happens.</p>
+      including the race that makes ₹44,546 vanish from a wallet. Copy one, run it,
+      then change something and see what happens.</p>
       <div class="searchrow">
         <label class="search">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4b6b5c" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -315,7 +316,7 @@ footer a{color:var(--c-back)}
 
   <!-- ================= CONCURRENCY LAB ================= -->
   <section class="section" id="concurrency" style="--tint:var(--c-conc)">
-    <div class="sec-head"><h2>Concurrency lab</h2><span class="whisper">eight programs, in order — each builds on the one before</span></div>
+    <div class="sec-head"><h2>Concurrency lab</h2><span class="whisper">eight programs, in order — each is a real task, each builds on the one before</span></div>
     <div class="grid">
 
       <div class="clone" data-kw="clone repo run git setup install">
@@ -326,57 +327,57 @@ go run ./01-goroutines     # each folder is one program
 go run -race ./03-mutex    # extra credit: watch Go catch the race</code></pre></div>
       </div>
 
-      <article class="card" data-kw="goroutine go keyword concurrent interleave main dies exit">
+      <article class="card" data-kw="goroutine go keyword concurrent email smtp send parallel main dies exit">
         <h3><span class="num">01</span> goroutines <span class="tag">start here</span></h3>
-        <p class="what">One keyword makes it concurrent. The catch: when <code>main</code> returns, everyone dies.</p>
-        <p class="eli"><b>💡 Everyday version:</b> your API gets 50 requests at once and handles them all simultaneously — that's goroutines, and the HTTP server spawns them for you. <code>go say("A")</code> is you hiring a helper: they start working while you carry on. But <code>main</code> is the shop owner — when the owner locks up and goes home, every helper stops mid-task.</p>
-        <div class="codebox"><pre><code>package main
+        <p class="what">Three users signed up — three welcome emails go out at the same time.</p>
+        <p class="eli"><b>💡 Everyday version:</b> <code>go sendEmail(…)</code> is hiring a helper: they start dialling SMTP immediately while you carry on. But <code>main</code> is the shop owner — when the owner locks up, every helper goes home mid-call. (Your HTTP server does this hiring for you on every request.)</p>
+        <div class="codebox"><pre><code>// goroutines: three signup emails, sent at the same time.
+package main
 
 import (
 	"fmt"
 	"time"
 )
 
-func say(name string) {
-	for i := 1; i <= 3; i++ {
-		fmt.Println(name, i)
-		time.Sleep(10 * time.Millisecond)
-	}
+func sendEmail(to string) {
+	fmt.Println("connecting to SMTP for", to)
+	time.Sleep(150 * time.Millisecond) // SMTP round-trip
+	fmt.Println("✉️  delivered to", to)
 }
 
 func main() {
-	go say("A") // fires and returns instantly
-	go say("B")
+	// three users just signed up
+	go sendEmail("asha@example.com")
+	go sendEmail("ravi@example.com")
 
-	say("main") // runs in the main goroutine,
-	//             keeping the program alive
+	sendEmail("meera@example.com") // main sends one too —
+	// which keeps the program alive long enough
 
 	// when main returns, ALL goroutines die.
-	// delete the say("main") line and watch
-	// A and B never get a chance to print.
+	// make main's send a `go` too and the program
+	// exits instantly: zero emails delivered.
 }</code></pre></div>
         <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./01-goroutines
-main 1
-A 1
-B 1
-B 2
-A 2
-main 2
-main 3
-A 3
-B 3</pre></div>
-        <p class="use"><b>Notice:</b> the interleaving is different every run — the scheduler decides. Never depend on goroutine ordering.</p>
+connecting to SMTP for meera@example.com
+connecting to SMTP for ravi@example.com
+connecting to SMTP for asha@example.com
+✉️  delivered to asha@example.com
+✉️  delivered to ravi@example.com
+✉️  delivered to meera@example.com</pre></div>
+        <p class="use"><b>Notice:</b> all three SMTP connections opened together and finished ~150ms later — sequentially this would take 450ms. Make main’s send a <code>go</code> too and the program exits with zero emails delivered.</p>
       </article>
 
-      <article class="card" data-kw="waitgroup wg add done wait finish workers sync">
+      <article class="card" data-kw="waitgroup wg add done wait dashboard aggregate services fan out">
         <h3><span class="num">02</span> wg.Wait() <span class="tag">sync</span></h3>
-        <p class="what">The fix for "main dies too early": count work in, count work out.</p>
-        <p class="eli"><b>💡 Everyday version:</b> your endpoint must call the user service, the orders service and the notifications service, then respond once ALL three answer. A WaitGroup is a tally on a whiteboard: <code>wg.Add(1)</code> = "one more job is out there", <code>wg.Done()</code> = a worker crossing their job off, <code>wg.Wait()</code> = you standing at the board, refusing to move until the tally reads zero.</p>
+        <p class="what"><code>GET /dashboard</code> fans out to three services — and must respond only when ALL of them have answered.</p>
+        <p class="eli"><b>💡 Everyday version:</b> a WaitGroup is a tally on a whiteboard: <code>wg.Add(1)</code> = “one more call in flight”, <code>wg.Done()</code> = a call crossing itself off, <code>wg.Wait()</code> = you standing at the board, refusing to send the 200 until the tally reads zero.</p>
         <ol class="how">
-        <li><b><code>wg.Add(1)</code> before <code>go</code></b> — write it on the board <em>before</em> the worker leaves, or you might check the board while it still says 0 and walk off early.</li>
-        <li><b><code>defer wg.Done()</code> as the worker's first line</b> — the job gets crossed off no matter how the worker exits, even on an error.</li>
-        <li><b><code>wg.Wait()</code> blocks</b> until the count is back to 0 — then, and only then, main continues.</p>
-        <div class="codebox"><pre><code>package main
+        <li><b><code>wg.Add(1)</code> before <code>go</code></b> — write it on the board <em>before</em> the call leaves, or you might check the board while it still says 0 and respond with half a dashboard.</li>
+        <li><b><code>defer wg.Done()</code> first line inside</b> — the call crosses itself off however it ends, even on an error.</li>
+        <li><b><code>wg.Wait()</code> blocks</b> until the count is back to 0 — then, and only then, the response goes out.</li>
+        </ol>
+        <div class="codebox"><pre><code>// wg.Wait: GET /dashboard answers only after ALL services do.
+package main
 
 import (
 	"fmt"
@@ -384,39 +385,47 @@ import (
 	"time"
 )
 
+func call(service string, ms int) {
+	time.Sleep(time.Duration(ms) * time.Millisecond)
+	fmt.Printf("%s answered in %dms\n", service, ms)
+}
+
 func main() {
 	var wg sync.WaitGroup
 
-	for id := 1; id <= 3; id++ {
-		wg.Add(1) // +1 BEFORE starting
+	// the dashboard needs three services
+	services := map[string]int{
+		"profile-service":       100,
+		"orders-service":        250,
+		"notifications-service": 180,
+	}
+	fmt.Println("GET /dashboard → calling 3 services…")
+	for name, latency := range services {
+		wg.Add(1) // one more call in flight
 		go func() {
-			defer wg.Done() // -1, always
-			wait := time.Duration(id) *
-				100 * time.Millisecond
-			time.Sleep(wait) // fake work
-			fmt.Printf("worker %d done (%v)\n",
-				id, wait)
+			defer wg.Done() // crossed off, always
+			call(name, latency)
 		}()
 	}
 
-	fmt.Println("waiting for 3 workers…")
-	wg.Wait() // blocks until counter hits 0
-	fmt.Println("all done ✓")
+	wg.Wait() // block here until all three answer
+	fmt.Println("200 OK — response assembled ✓")
 }</code></pre></div>
         <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./02-waitgroup
-waiting for 3 workers…
-worker 1 done (100ms)
-worker 2 done (200ms)
-worker 3 done (300ms)
-all done ✓</pre></div>
-        <p class="use"><b>Notice:</b> total time is 300ms (the slowest), not 600ms (the sum) — the workers ran simultaneously.</p>
+GET /dashboard → calling 3 services…
+profile-service answered in 100ms
+notifications-service answered in 180ms
+orders-service answered in 250ms
+200 OK — response assembled ✓</pre></div>
+        <p class="use"><b>Notice:</b> the 200 OK left at 250ms — the <em>slowest</em> service, not the 530ms sum. That difference is the whole reason to fan out.</p>
       </article>
 
-      <article class="card" data-kw="mutex race data race counter lock unlock broken lost updates">
-        <h3><span class="num">03</span> mutex vs the race <span class="tag">the big one</span></h3>
-        <p class="what">100 goroutines bump a counter 1,000 times each. Watch two-thirds of the increments vanish.</p>
-        <p class="eli"><b>💡 Everyday version:</b> two requests hit "add ₹100 to wallet" at the same moment. Both read balance 500, both compute 600, both write 600 — one deposit just vanished. That's the race. A mutex is the single bathroom key at a petrol station: <code>Lock()</code> takes the key, everyone else queues, <code>Unlock()</code> hands it back. Only one goroutine touches the money at a time.</p>
-        <div class="codebox"><pre><code>package main
+      <article class="card" data-kw="mutex race data race wallet balance cashback money lock unlock lost updates">
+        <h3><span class="num">03</span> mutex vs the wallet race <span class="tag">the big one</span></h3>
+        <p class="what">A cashback promo: 100 concurrent clients, 1,000 hits each, ₹1 per hit. Watch ₹44,546 vanish.</p>
+        <p class="eli"><b>💡 Everyday version:</b> two requests read balance ₹500 at the same moment, both compute ₹501, both write ₹501 — one rupee gone. At scale that’s the 😱 line below. The mutex is the single bathroom key at a petrol station: <code>Lock()</code> takes the key, everyone queues, <code>Unlock()</code> hands it back. One goroutine touches the balance at a time.</p>
+        <div class="codebox"><pre><code>// mutex: 100 concurrent clients earn ₹1 cashback per hit.
+package main
 
 import (
 	"fmt"
@@ -424,30 +433,30 @@ import (
 )
 
 func main() {
-	const workers, bumps = 100, 1000
+	const clients, hits = 100, 1000
 	var wg sync.WaitGroup
 
-	// BROKEN: a plain int, no lock
-	unsafe := 0
-	for range workers {
+	// BROKEN: every request credits the wallet, no lock
+	balance := 0
+	for range clients {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for range bumps {
-				unsafe++ // RACE: read+write
+			for range hits {
+				balance++ // RACE: read, add, write
 			}
 		}()
 	}
 	wg.Wait()
 
-	// FIXED: same thing behind a mutex
+	// FIXED: same traffic, one mutex
 	var mu sync.Mutex
 	safe := 0
-	for range workers {
+	for range clients {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for range bumps {
+			for range hits {
 				mu.Lock()
 				safe++
 				mu.Unlock()
@@ -456,103 +465,117 @@ func main() {
 	}
 	wg.Wait()
 
-	fmt.Println("expected:      ", workers*bumps)
-	fmt.Println("without mutex: ", unsafe, "😱")
-	fmt.Println("with mutex:    ", safe, "✓")
+	fmt.Println("should be: ₹", clients*hits)
+	fmt.Println("no mutex:  ₹", balance, "— money vanished 😱")
+	fmt.Println("mutex:     ₹", safe, "✓")
 }</code></pre></div>
         <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./03-mutex
-expected:       100000
-without mutex:  33861 😱
-with mutex:     100000 ✓
-<span class="dim"># x++ is really: read x, add 1, write x —
-# two goroutines interleave those steps
-# and one of the writes gets overwritten</span></pre></div>
-        <p class="use"><b>Extra credit:</b> <code>go run -race ./03-mutex</code> — Go pinpoints the racing line for you. Run <code>-race</code> in CI, always.</p>
+should be: ₹ 100000
+no mutex:  ₹ 55454 — money vanished 😱
+mutex:     ₹ 100000 ✓
+<span class="dim"># balance++ is really: read, add 1, write —
+# two clients interleave those steps and one
+# write overwrites the other. Real money, gone.</span></pre></div>
+        <p class="use"><b>Extra credit:</b> <code>go run -race ./03-mutex</code> — Go names the exact racing line. This bug passes code review constantly; <code>-race</code> in CI is what actually catches it.</p>
       </article>
 
-      <article class="card" data-kw="channel send receive close range blocks handshake">
+      <article class="card" data-kw="channel send receive close range upload scanner pipeline hand off">
         <h3><span class="num">04</span> channels <span class="tag">pipes</span></h3>
-        <p class="what">A typed pipe between goroutines. Sends block until someone receives — watch the lockstep.</p>
-        <p class="eli"><b>💡 Everyday version:</b> one teammate unzips uploaded files, another processes them. The channel is the hatch between their desks. Unbuffered means hand-to-hand: the sender stands there holding the file until the receiver takes it — that's why the output alternates send, receive, send, receive.</p>
-        <div class="codebox"><pre><code>package main
+        <p class="what">An upload endpoint hands finished files to a virus scanner — hand to hand.</p>
+        <p class="eli"><b>💡 Everyday version:</b> the channel is the hatch between two desks. Unbuffered means hand-to-hand: the upload goroutine stands there holding <code>invoice_jan.pdf</code> until the scanner takes it. That’s why the output alternates instead of uploading everything first.</p>
+        <div class="codebox"><pre><code>// channels: uploaded files handed to the virus scanner.
+package main
 
 import "fmt"
 
 func main() {
-	ch := make(chan string)
+	uploads := make(chan string) // the hand-off point
 
-	go func() { // the sender
-		menu := []string{"🍎", "🍌", "🍇"}
-		for _, fruit := range menu {
-			fmt.Println("sending", fruit)
-			ch <- fruit // blocks until received
+	go func() { // goroutine A: the upload receiver
+		files := []string{
+			"invoice_jan.pdf",
+			"invoice_feb.pdf",
+			"salary_slip.pdf",
 		}
-		close(ch) // sender says: no more
+		for _, f := range files {
+			fmt.Println("upload complete:", f)
+			uploads <- f // hand to the scanner
+		}
+		close(uploads) // no more uploads today
 	}()
 
-	for f := range ch { // receive until closed
-		fmt.Println("got    ", f)
+	for f := range uploads { // main: the scanner
+		fmt.Println("  virus-scanned:", f)
 	}
-	fmt.Println("channel drained, bye")
+	fmt.Println("all uploads processed ✓")
 }</code></pre></div>
         <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./04-channels
-sending 🍎
-sending 🍌
-got     🍎
-sending 🍇
-got     🍌
-got     🍇
-channel drained, bye</pre></div>
-        <p class="use"><b>Notice:</b> sends and receives alternate in lockstep — that's the unbuffered handshake. Try <code>make(chan string, 3)</code> and watch all three sends happen first.</p>
+upload complete: invoice_jan.pdf
+upload complete: invoice_feb.pdf
+  virus-scanned: invoice_jan.pdf
+  virus-scanned: invoice_feb.pdf
+upload complete: salary_slip.pdf
+  virus-scanned: salary_slip.pdf
+all uploads processed ✓</pre></div>
+        <p class="use"><b>Notice:</b> the strict upload → scan alternation. Make it <code>make(chan string, 3)</code> and all three uploads complete before the first scan — the hatch became a tray.</p>
       </article>
 
-      <article class="card" data-kw="select timeout first ready multiple channels time.After">
+      <article class="card" data-kw="select timeout cache db fastest race budget 504 time.After">
         <h3><span class="num">05</span> select + timeout <span class="tag">wait smart</span></h3>
-        <p class="what">Wait on a fast worker, a slow worker, and a deadline — whichever speaks first wins.</p>
-        <p class="eli"><b>💡 Everyday version:</b> you ordered from two food apps and you'll eat whichever arrives first — and if nothing shows up in 30 minutes, you're making noodles. <code>select</code> watches all cases at once and takes the first one ready; <code>time.After</code> is the noodle deadline. Backend translation: try the cache and the DB together, take the fastest, never wait forever.</p>
-        <div class="codebox"><pre><code>package main
+        <p class="what"><code>cart:42</code> lives in the cache AND the database. Serve whichever answers first — inside a 100ms budget.</p>
+        <p class="eli"><b>💡 Everyday version:</b> you ordered from two food apps; you’ll eat whichever arrives first, and if nothing shows in 30 minutes you’re making noodles. <code>select</code> watches all three cases at once; <code>time.After</code> is the noodles. The user gets an answer in 100ms <em>no matter what</em> the database is doing.</p>
+        <div class="codebox"><pre><code>// select: cache vs DB — serve the fastest, respect the budget.
+package main
 
 import (
 	"fmt"
 	"time"
 )
 
-func worker(name string, d time.Duration) <-chan string {
+func cacheGet(key string) <-chan string {
 	ch := make(chan string, 1)
 	go func() {
-		time.Sleep(d)
-		ch <- name + " finished"
+		time.Sleep(5 * time.Millisecond) // redis is quick
+		ch <- key + " → 3 items (cache)"
+	}()
+	return ch
+}
+
+func dbQuery(key string) <-chan string {
+	ch := make(chan string, 1)
+	go func() {
+		time.Sleep(3 * time.Second) // db is having a day
+		ch <- key + " → 3 items (db)"
 	}()
 	return ch
 }
 
 func main() {
-	fast := worker("fast", 50*time.Millisecond)
-	slow := worker("slow", 5*time.Second)
+	cache := cacheGet("cart:42")
+	db := dbQuery("cart:42")
 
-	for {
-		select {
-		case msg := <-fast:
-			fmt.Println(msg)
-		case msg := <-slow:
-			fmt.Println(msg) // never happens
-		case <-time.After(200 * time.Millisecond):
-			fmt.Println("⏰ timeout — not waiting 5s for slow")
-			return
-		}
+	select {
+	case v := <-cache:
+		fmt.Println("hit:", v)
+	case v := <-db:
+		fmt.Println("hit:", v)
+	case <-time.After(100 * time.Millisecond):
+		fmt.Println("both slow → 504, don't hang")
 	}
+	fmt.Println("responded within the 100ms budget ✓")
 }</code></pre></div>
         <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./05-select
-fast finished
-⏰ timeout — not waiting 5s for slow</pre></div>
-        <p class="use"><b>Notice:</b> the program exits in ~250ms even though a 5-second worker is still out there. This is how you put deadlines on anything.</p>
+hit: cart:42 → 3 items (cache)
+responded within the 100ms budget ✓</pre></div>
+        <p class="use"><b>Notice:</b> the DB was still ~3 seconds away when we responded. Change the cache latency to 200ms and re-run — you’ll see the 504 branch fire instead of a hang.</p>
       </article>
 
-      <article class="card" data-kw="worker pool jobs results queue throughput bounded">
+      <article class="card" data-kw="worker pool queue smtp connections newsletter emails bounded throughput">
         <h3><span class="num">06</span> worker pool <span class="tag">throughput</span></h3>
-        <p class="what">Nine jobs, three workers, one queue. The math shows up in the wall clock.</p>
-        <p class="eli"><b>💡 Everyday version:</b> a café with one order queue and three baristas — whoever's free grabs the next order. Backend translation: 10,000 images to thumbnail, but you only want 3 hitting the disk at once. The queue feeds a fixed crew instead of hiring 10,000 workers and melting the machine.</p>
-        <div class="codebox"><pre><code>package main
+        <p class="what">A newsletter to 9 users — but you only hold 3 SMTP connections.</p>
+        <p class="eli"><b>💡 Everyday version:</b> the 3 connections are baristas; the address list is the order queue. Whoever’s free grabs the next email. Same shape for image resizing, PDF generation, webhook delivery — any pile of jobs where “one goroutine each” would melt something downstream.</p>
+        <div class="codebox"><pre><code>// worker pool: 9 newsletters, only 3 SMTP connections.
+package main
 
 import (
 	"fmt"
@@ -562,59 +585,54 @@ import (
 
 func main() {
 	start := time.Now()
-	jobs := make(chan int)
-	results := make(chan string)
+	queue := make(chan string)
 	var wg sync.WaitGroup
 
-	for w := 1; w <= 3; w++ { // exactly 3 workers
+	for conn := 1; conn <= 3; conn++ { // 3 connections
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for j := range jobs { // until closed
-				time.Sleep(100 * time.Millisecond)
-				results <- fmt.Sprintf(
-					"worker %d finished job %d", w, j)
+			for email := range queue { // until closed
+				time.Sleep(100 * time.Millisecond) // send
+				fmt.Printf("conn %d sent → %s\n",
+					conn, email)
 			}
 		}()
 	}
 
-	go func() { // feed 9 jobs, then close
-		for j := 1; j <= 9; j++ {
-			jobs <- j
-		}
-		close(jobs)
-	}()
-
-	go func() { // close results when workers exit
-		wg.Wait()
-		close(results)
-	}()
-
-	for r := range results {
-		fmt.Println(r)
+	users := []string{
+		"asha", "ravi", "meera", "arjun", "divya",
+		"karan", "nisha", "rahul", "sneha",
 	}
-	fmt.Printf("9 jobs × 100ms on 3 workers = %v\n",
+	for _, u := range users {
+		queue <- u + "@example.com"
+	}
+	close(queue) // newsletter fully queued
+	wg.Wait()
+
+	fmt.Printf("9 emails on 3 connections = %v\n",
 		time.Since(start).Round(10*time.Millisecond))
 }</code></pre></div>
         <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./06-workerpool
-worker 1 finished job 3
-worker 2 finished job 2
-worker 3 finished job 1
-worker 3 finished job 6
-worker 2 finished job 5
-worker 1 finished job 4
-worker 2 finished job 9
-worker 1 finished job 8
-worker 3 finished job 7
-9 jobs × 100ms on 3 workers = 300ms</pre></div>
-        <p class="use"><b>Notice:</b> 900ms of work done in 300ms. Change it to 1 worker or 9 workers and re-check the clock.</p>
+conn 3 sent → asha@example.com
+conn 1 sent → ravi@example.com
+conn 2 sent → meera@example.com
+conn 2 sent → divya@example.com
+conn 3 sent → arjun@example.com
+conn 1 sent → karan@example.com
+conn 2 sent → rahul@example.com
+conn 3 sent → nisha@example.com
+conn 1 sent → sneha@example.com
+9 emails on 3 connections = 300ms</pre></div>
+        <p class="use"><b>Notice:</b> 900ms of sending done in 300ms, and no email waited on a specific connection — just the next free one. Try 1 connection (900ms) or 9 (100ms).</p>
       </article>
 
-      <article class="card" data-kw="context cancel timeout done stop worker deadline">
+      <article class="card" data-kw="context cancel timeout report batch budget 504 done abort">
         <h3><span class="num">07</span> context <span class="tag">please stop</span></h3>
-        <p class="what">A worker that ticks forever — until the context's 350ms deadline pulls the plug.</p>
-        <p class="eli"><b>💡 Everyday version:</b> a customer walks out of the restaurant — the kitchen should stop cooking their order, not finish it for nobody. The context is the order ticket every function holds a copy of; when it's cancelled (client disconnected, or the timer rang), <code>ctx.Done()</code> fires and everyone holding that ticket stops. This is how a request timeout flows through your whole backend.</p>
-        <div class="codebox"><pre><code>package main
+        <p class="what">A heavy report endpoint with a 350ms budget — the context aborts batch 4 mid-flight.</p>
+        <p class="eli"><b>💡 Everyday version:</b> the customer walked out, so the kitchen stops cooking their order. The context is the order ticket every function holds a copy of; when the 350ms timer rings (or the client disconnects), <code>ctx.Done()</code> fires and the report stops burning CPU for a response nobody will read.</p>
+        <div class="codebox"><pre><code>// context: a report that stops when the request times out.
+package main
 
 import (
 	"context"
@@ -622,40 +640,43 @@ import (
 	"time"
 )
 
-func tick(ctx context.Context) {
-	for i := 1; ; i++ {
+func generateReport(ctx context.Context) {
+	for batch := 1; ; batch++ {
 		select {
-		case <-ctx.Done(): // cancelled or timed out
-			fmt.Println("worker: stopping —", ctx.Err())
+		case <-ctx.Done(): // out of time / client gone
+			fmt.Println("aborting report:", ctx.Err())
 			return
 		case <-time.After(100 * time.Millisecond):
-			fmt.Println("worker: tick", i)
+			fmt.Printf("processed batch %d (10k rows)\n",
+				batch)
 		}
 	}
 }
 
 func main() {
+	// this endpoint has a 350ms budget
 	ctx, cancel := context.WithTimeout(
 		context.Background(), 350*time.Millisecond)
-	defer cancel() // always, even on success
+	defer cancel()
 
-	tick(ctx) // returns when the context fires
-	fmt.Println("main: clean exit")
+	generateReport(ctx)
+	fmt.Println("handler: told client 504, moved on")
 }</code></pre></div>
         <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./07-context
-worker: tick 1
-worker: tick 2
-worker: tick 3
-worker: stopping — context deadline exceeded
-main: clean exit</pre></div>
-        <p class="use"><b>Notice:</b> 3 ticks fit inside 350ms, then <code>ctx.Done()</code> fires. Swap <code>WithTimeout</code> for <code>WithCancel</code> and call <code>cancel()</code> yourself.</p>
+processed batch 1 (10k rows)
+processed batch 2 (10k rows)
+processed batch 3 (10k rows)
+aborting report: context deadline exceeded
+handler: told client 504, moved on</pre></div>
+        <p class="use"><b>Notice:</b> exactly 3 batches fit in the budget, then <code>ctx.Err()</code> says why it stopped. Swap <code>WithTimeout</code> for <code>WithCancel</code> and call <code>cancel()</code> from another goroutine — same shutdown, your trigger.</p>
       </article>
 
-      <article class="card" data-kw="errgroup fan out first error x/sync limit parallel">
+      <article class="card" data-kw="errgroup checkout payment declined fan out first error x/sync services">
         <h3><span class="num">08</span> errgroup <span class="tag">x/sync</span></h3>
-        <p class="what">Fan out three calls; one fails. The group hands you exactly the first error.</p>
-        <p class="eli"><b>💡 Everyday version:</b> a team lead hands three devs a task each and waits at standup. If anyone hit a blocker, the lead hears the FIRST blocker and can call the whole thing off. It's the WaitGroup whiteboard from program 02, but the workers can also report failures — which is why it's the default for calling several services at once.</p>
-        <div class="codebox"><pre><code>// needs: go get golang.org/x/sync/errgroup
+        <p class="what"><code>POST /checkout</code> fans out to inventory, payment and shipping. The card declines.</p>
+        <p class="eli"><b>💡 Everyday version:</b> a team lead sends three devs off and waits at standup. Everyone reports; the lead hears the FIRST blocker. It’s the WaitGroup whiteboard from program 02, but workers can also file complaints — which is why it’s the default for real service fan-out.</p>
+        <div class="codebox"><pre><code>// errgroup: POST /checkout fans out; payment declines.
+// needs: go get golang.org/x/sync/errgroup
 package main
 
 import (
@@ -665,39 +686,40 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func fetch(url string) error {
-	if url == "https://bad.example" {
-		return errors.New("boom: " + url)
+func callService(name string) error {
+	if name == "payment-service" {
+		return errors.New(
+			"payment-service: card declined")
 	}
-	fmt.Println("fetched", url)
+	fmt.Println(name, "→ OK")
 	return nil
 }
 
 func main() {
 	var g errgroup.Group
-	g.SetLimit(2) // at most 2 at a time
 
-	urls := []string{
-		"https://go.dev",
-		"https://bad.example",
-		"https://github.com",
-	}
-	for _, u := range urls {
+	for _, svc := range []string{
+		"inventory-service",
+		"payment-service",
+		"shipping-service",
+	} {
 		g.Go(func() error {
-			return fetch(u)
+			return callService(svc)
 		})
 	}
 
-	// Wait returns the FIRST error (or nil)
+	// Wait = wg.Wait() + the first error
 	if err := g.Wait(); err != nil {
-		fmt.Println("g.Wait() →", err)
+		fmt.Println("checkout failed:", err)
+		fmt.Println("→ respond 402, release the stock")
 	}
 }</code></pre></div>
         <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./08-errgroup
-fetched https://github.com
-fetched https://go.dev
-g.Wait() → boom: https://bad.example</pre></div>
-        <p class="use"><b>Notice:</b> the good fetches still ran; <code>Wait</code> surfaced the one failure. This is programs 02+03 with error handling built in — your default for real fan-out.</p>
+shipping-service → OK
+inventory-service → OK
+checkout failed: payment-service: card declined
+→ respond 402, release the stock</pre></div>
+        <p class="use"><b>Notice:</b> inventory and shipping still returned OK — that’s exactly why the failure path must release the reserved stock. <code>g.Wait()</code> handed back precisely the payment error, nothing vaguer.</p>
       </article>
 
     </div>
@@ -708,56 +730,57 @@ g.Wait() → boom: https://bad.example</pre></div>
     <div class="sec-head"><h2>Backend lab</h2><span class="whisper">JSON, HTTP, a real database, and dying gracefully</span></div>
     <div class="grid">
 
-      <article class="card" data-kw="json marshal unmarshal encode decode struct tags omitempty">
+      <article class="card" data-kw="json marshal unmarshal request response order decode encode omitempty tags">
         <h3><span class="num">09</span> JSON both ways <span class="tag">encoding</span></h3>
-        <p class="what">Struct to JSON and back, with tags doing the naming.</p>
-        <p class="eli"><b>💡 Everyday version:</b> your struct is the organized shelf in your warehouse; JSON is the cardboard box you ship. Marshal = packing the box with a labelled manifest (tags decide the labels); Unmarshal = unpacking a box someone sent you onto your shelf. Every request body you'll ever read is this one round trip.</p>
-        <div class="codebox"><pre><code>package main
+        <p class="what">The two JSON moments of every endpoint: decode the request body, encode the response.</p>
+        <p class="eli"><b>💡 Everyday version:</b> your struct is the organized shelf; JSON is the cardboard box on the truck. Unmarshal = unpacking the client’s box onto your shelf (unknown fields are ignored, missing ones stay zero); Marshal = packing your response with the labels the tags chose.</p>
+        <div class="codebox"><pre><code>// json: the request and response bodies of POST /orders.
+package main
 
 import (
 	"encoding/json"
 	"fmt"
 )
 
-type Note struct {
-	ID   int      `json:"id"`
-	Text string   `json:"text"`
-	Tags []string `json:"tags,omitempty"`
+type Order struct {
+	ID     int      `json:"id"`
+	UserID int      `json:"user_id"`
+	Items  []string `json:"items"`
+	Coupon string   `json:"coupon,omitempty"`
 }
 
 func main() {
-	// struct → JSON (marshal)
-	n := Note{ID: 1, Text: "hello",
-		Tags: []string{"go", "demo"}}
-	out, _ := json.MarshalIndent(n, "", "  ")
-	fmt.Println(string(out))
-
-	// JSON → struct (unmarshal)
-	raw := `{"id": 2, "text": "from the wire"}`
-	var m Note
-	if err := json.Unmarshal([]byte(raw), &m); err != nil {
-		panic(err)
+	// what the client POSTs
+	body := `{"user_id": 7, "items": ["boat-airdopes"]}`
+	var in Order
+	if err := json.Unmarshal([]byte(body), &in); err != nil {
+		panic(err) // in a handler: respond 400
 	}
-	fmt.Printf("%+v\n", m)
+	fmt.Printf("decoded request: %+v\n", in)
+
+	// what your handler sends back
+	in.ID = 1042 // the DB assigned it
+	out, _ := json.MarshalIndent(in, "", "  ")
+	fmt.Println(string(out))
 }</code></pre></div>
         <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./09-json
+decoded request: {ID:0 UserID:7 Items:[boat-airdopes] Coupon:}
 {
-  "id": 1,
-  "text": "hello",
-  "tags": [
-    "go",
-    "demo"
+  "id": 1042,
+  "user_id": 7,
+  "items": [
+    "boat-airdopes"
   ]
-}
-{ID:2 Text:from the wire Tags:[]}</pre></div>
-        <p class="use"><b>Notice:</b> the input had no <code>tags</code>, so <code>Tags</code> came back as a nil slice — and <code>omitempty</code> would hide it on the way out.</p>
+}</pre></div>
+        <p class="use"><b>Notice:</b> <code>ID</code> was 0 after decoding — clients don’t get to pick IDs; the DB does. And the empty <code>Coupon</code> disappeared from the response thanks to <code>omitempty</code>.</p>
       </article>
 
-      <article class="card" data-kw="http server client api get json request response mux pathvalue">
+      <article class="card" data-kw="http server client orders endpoint api pathvalue json get microservice">
         <h3><span class="num">10</span> HTTP server + client <span class="tag">one file</span></h3>
-        <p class="what">A JSON API and the code that calls it — the server runs in a goroutine (lesson 01 pays off).</p>
-        <p class="eli"><b>💡 Everyday version:</b> both halves of your day job in 40 lines — the service that answers, and the client that asks (also you, whenever your service calls another service). The counter <code>n</code> is in-memory state: it lives exactly as long as the process, which is why a restart resets anything you didn't put in a database.</p>
-        <div class="codebox"><pre><code>package main
+        <p class="what"><code>GET /orders/{id}</code> — the microservice AND the service that calls it, in one file.</p>
+        <p class="eli"><b>💡 Everyday version:</b> both halves of the day job: the handler that answers (decode path → fetch → encode JSON) and the client that asks — which is also you, every time your service calls another one. The server runs in a goroutine; program 01 pays off.</p>
+        <div class="codebox"><pre><code>// http: GET /orders/{id} — the service AND its caller.
+package main
 
 import (
 	"encoding/json"
@@ -766,52 +789,53 @@ import (
 	"time"
 )
 
-type Pong struct {
-	Msg string `json:"msg"`
-	N   int    `json:"n"`
+type Order struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
 }
 
 func main() {
 	mux := http.NewServeMux()
-	n := 0
-	mux.HandleFunc("GET /ping",
+	mux.HandleFunc("GET /orders/{id}",
 		func(w http.ResponseWriter, r *http.Request) {
-			n++
-			json.NewEncoder(w).Encode(Pong{"pong", n})
+			id := r.PathValue("id")
+			// (a real handler queries the DB here)
+			json.NewEncoder(w).Encode(
+				Order{ID: id, Status: "shipped"})
 		})
 
-	go http.ListenAndServe(":8090", mux) // serve…
-	time.Sleep(100 * time.Millisecond)   // …boot up
+	go http.ListenAndServe(":8090", mux) // the service
+	time.Sleep(100 * time.Millisecond)   // let it boot
 
-	for range 3 { // …and call ourselves
-		res, err := http.Get(
-			"http://localhost:8090/ping")
-		if err != nil {
-			panic(err)
-		}
-		var p Pong
-		json.NewDecoder(res.Body).Decode(&p)
-		res.Body.Close()
-		fmt.Printf("%d ← %+v\n", res.StatusCode, p)
+	// another service asks about order 1042
+	res, err := http.Get(
+		"http://localhost:8090/orders/1042")
+	if err != nil {
+		panic(err)
 	}
+	defer res.Body.Close()
+
+	var o Order
+	json.NewDecoder(res.Body).Decode(&o)
+	fmt.Println("status code:", res.StatusCode)
+	fmt.Printf("order: %+v\n", o)
 }</code></pre></div>
         <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./10-httpapi
-200 ← {Msg:pong N:1}
-200 ← {Msg:pong N:2}
-200 ← {Msg:pong N:3}</pre></div>
-        <p class="use"><b>Notice:</b> the counter increments across requests — server state lives as long as the process. (Spot the race if two clients hit it at once? Lesson 03 says <code>n++</code> needs a mutex.)</p>
+status code: 200
+order: {ID:1042 Status:shipped}</pre></div>
+        <p class="use"><b>Notice:</b> <code>r.PathValue("id")</code> pulled 1042 straight from the URL, and the caller decoded the same struct back out. This request/response loop is 90% of microservice life.</p>
       </article>
 
-      <article class="card" data-kw="mysql database sql connect insert query driver ping docker">
-        <h3><span class="num">11</span> MySQL connect + CRUD <span class="tag">database/sql</span></h3>
-        <p class="what">Open, ping, create, insert, read back — the whole database handshake in 40 lines.</p>
-        <p class="eli"><b>💡 Everyday version:</b> <code>sql.Open</code> is saving a phone number to your contacts — no call made yet. <code>db.Ping</code> is actually dialling to check someone picks up. And the <code>?</code> placeholder is a printed form with a fixed answer box: whatever the user writes stays INSIDE the box and can never rewrite the form — that's why injection can't happen.</p>
-        <div class="codebox"><pre><code>// needs: go get github.com/go-sql-driver/mysql
+      <article class="card" data-kw="mysql database sql signup insert users unique email ping docker placeholder">
+        <h3><span class="num">11</span> MySQL: the signup flow <span class="tag">database/sql</span></h3>
+        <p class="what">What <code>POST /signup</code> actually does to the database: connect, insert the email, read it back.</p>
+        <p class="eli"><b>💡 Everyday version:</b> <code>sql.Open</code> is saving a phone number — no call made. <code>db.Ping</code> is dialling to check someone answers. The <code>?</code> placeholder is a printed form with a fixed answer box: whatever the user types stays INSIDE the box and can never rewrite the form — that’s why injection can’t happen.</p>
+        <div class="codebox"><pre><code>// mysql: what POST /signup does to the database.
+// needs: go get github.com/go-sql-driver/mysql
 // and a server:
 //   docker run -d --name mysql-demo \
 //     -e MYSQL_ROOT_PASSWORD=secret \
-//     -e MYSQL_DATABASE=notes \
-//     -p 3306:3306 mysql:8
+//     -e MYSQL_DATABASE=notes -p 3306:3306 mysql:8
 package main
 
 import (
@@ -829,41 +853,47 @@ func main() {
 	}
 	defer db.Close()
 
-	if err := db.Ping(); err != nil { // real check
-		panic("unreachable: " + err.Error())
+	if err := db.Ping(); err != nil {
+		panic("db unreachable: " + err.Error())
 	}
 	fmt.Println("connected ✓")
 
-	db.Exec(`CREATE TABLE IF NOT EXISTS pets (
-		id   INT AUTO_INCREMENT PRIMARY KEY,
-		name VARCHAR(50) NOT NULL)`)
+	db.Exec("DROP TABLE IF EXISTS users") // rerunnable demo
+	db.Exec(`CREATE TABLE users (
+		id    INT AUTO_INCREMENT PRIMARY KEY,
+		email VARCHAR(120) NOT NULL UNIQUE)`)
 
+	// the signup form's email goes in via ? — never
+	// by pasting it into the SQL string
 	res, err := db.Exec(
-		"INSERT INTO pets (name) VALUES (?)",
-		"Gopher")
+		"INSERT INTO users (email) VALUES (?)",
+		"asha@example.com")
 	if err != nil {
-		panic(err)
+		panic(err) // e.g. duplicate email → 409
 	}
 	id, _ := res.LastInsertId()
-	fmt.Println("inserted pet with id", id)
+	fmt.Println("new user id:", id)
 
-	var name string
-	db.QueryRow("SELECT name FROM pets WHERE id = ?",
-		id).Scan(&name)
-	fmt.Println("read back:", name)
+	var email string
+	db.QueryRow(
+		"SELECT email FROM users WHERE id = ?",
+		id).Scan(&email)
+	fmt.Println("stored:", email)
 }</code></pre></div>
         <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./11-mysql
 connected ✓
-inserted pet with id 1
-read back: Gopher</pre></div>
-        <p class="use"><b>Notice:</b> <code>sql.Open</code> doesn't connect — it just validates the string. <code>db.Ping()</code> is the moment credentials actually get tested. The <code>?</code> placeholders are your SQL-injection armor.</p>
+new user id: 1
+stored: asha@example.com</pre></div>
+        <p class="use"><b>Notice:</b> <code>UNIQUE</code> on email means a duplicate signup makes the INSERT error — your handler turns that into a 409; the database enforces a business rule for free. (<code>DROP TABLE</code> just keeps the demo rerunnable.)</p>
       </article>
 
-      <article class="card" data-kw="graceful shutdown sigterm signal drain deploy kubernetes server">
+      <article class="card" data-kw="graceful shutdown sigterm deploy drain orders kubernetes signal">
         <h3><span class="num">12</span> graceful shutdown <span class="tag">production</span></h3>
-        <p class="what">The deploy-day pattern — this program sends <em>itself</em> a SIGTERM so you can watch the drain.</p>
-        <p class="eli"><b>💡 Everyday version:</b> closing a restaurant properly — lock the front door (stop accepting requests), let seated guests finish eating (drain in-flight work), then lights out. Kubernetes is the landlord: it rings the closing bell (SIGTERM) and cuts the power ~30s later. Skip this pattern and every deploy kicks users out mid-bite.</p>
-        <div class="codebox"><pre><code>package main
+        <p class="what">Deploy day for the orders API — SIGTERM arrives, it stops taking orders and finishes the open ones.</p>
+        <p class="eli"><b>💡 Everyday version:</b> closing a restaurant properly: lock the front door (stop accepting), let seated guests finish (drain in-flight requests), then lights out. Kubernetes is the landlord — it rings the bell (SIGTERM) and cuts power ~30s later. Skip this and every deploy hangs up on users mid-request.</p>
+        <div class="codebox"><pre><code>// graceful shutdown: deploy day for your orders API.
+// (sends ITSELF a SIGTERM so you can watch the drain)
+package main
 
 import (
 	"context"
@@ -884,15 +914,15 @@ func main() {
 	defer stop()
 
 	go srv.ListenAndServe()
-	fmt.Println("serving on :8091")
+	fmt.Println("orders API serving on :8091")
 
-	go func() { // pretend k8s kills us in 300ms
+	go func() { // pretend k8s deploys in 300ms
 		time.Sleep(300 * time.Millisecond)
 		syscall.Kill(os.Getpid(), syscall.SIGTERM)
 	}()
 
 	<-ctx.Done() // block until the signal
-	fmt.Println("SIGTERM received, draining…")
+	fmt.Println("SIGTERM: stop taking orders, finish the open ones…")
 
 	shCtx, cancel := context.WithTimeout(
 		context.Background(), 5*time.Second)
@@ -900,13 +930,13 @@ func main() {
 	if err := srv.Shutdown(shCtx); err != nil {
 		panic(err)
 	}
-	fmt.Println("in-flight requests done, clean exit ✓")
+	fmt.Println("all in-flight requests served — clean exit ✓")
 }</code></pre></div>
         <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./12-shutdown
-serving on :8091
-SIGTERM received, draining…
-in-flight requests done, clean exit ✓</pre></div>
-        <p class="use"><b>Notice:</b> everything from this lab is in here — a goroutine (01), a signal context (07), and a select-like block on <code>ctx.Done()</code>. Delete the fake-SIGTERM goroutine and it waits for a real Ctrl-C.</p>
+orders API serving on :8091
+SIGTERM: stop taking orders, finish the open ones…
+all in-flight requests served — clean exit ✓</pre></div>
+        <p class="use"><b>Notice:</b> the pieces are all from this lab — a goroutine (01), a signal context (07), blocking on <code>ctx.Done()</code>. Delete the fake-SIGTERM goroutine and it waits for your real Ctrl-C.</p>
       </article>
 
     </div>

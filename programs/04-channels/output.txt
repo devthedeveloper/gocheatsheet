@@ -1,7 +1,7 @@
-sending 🍎
-sending 🍌
-got     🍎
-sending 🍇
-got     🍌
-got     🍇
-channel drained, bye
+upload complete: invoice_jan.pdf
+upload complete: invoice_feb.pdf
+  virus-scanned: invoice_jan.pdf
+  virus-scanned: invoice_feb.pdf
+upload complete: salary_slip.pdf
+  virus-scanned: salary_slip.pdf
+all uploads processed ✓

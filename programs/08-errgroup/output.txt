@@ -1,3 +1,4 @@
-fetched https://github.com
-fetched https://go.dev
-g.Wait() → boom: https://bad.example
+shipping-service → OK
+inventory-service → OK
+checkout failed: payment-service: card declined
+→ respond 402, release the stock

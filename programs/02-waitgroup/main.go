@@ -1,4 +1,4 @@
-// waitgroup: wait for N goroutines to finish.
+// wg.Wait: GET /dashboard answers only after ALL services do.
 package main
 
 import (
@@ -7,22 +7,29 @@ import (
 	"time"
 )
 
+func call(service string, ms int) {
+	time.Sleep(time.Duration(ms) * time.Millisecond)
+	fmt.Printf("%s answered in %dms\n", service, ms)
+}
+
 func main() {
 	var wg sync.WaitGroup
 
-	for id := 1; id <= 3; id++ {
-		wg.Add(1) // +1 BEFORE starting
+	// the dashboard needs three services
+	services := map[string]int{
+		"profile-service":       100,
+		"orders-service":        250,
+		"notifications-service": 180,
+	}
+	fmt.Println("GET /dashboard → calling 3 services…")
+	for name, latency := range services {
+		wg.Add(1) // one more call in flight
 		go func() {
-			defer wg.Done() // -1, always
-			wait := time.Duration(id) *
-				100 * time.Millisecond
-			time.Sleep(wait) // fake work
-			fmt.Printf("worker %d done (%v)\n",
-				id, wait)
+			defer wg.Done() // crossed off, always
+			call(name, latency)
 		}()
 	}
 
-	fmt.Println("waiting for 3 workers…")
-	wg.Wait() // blocks until counter hits 0
-	fmt.Println("all done ✓")
+	wg.Wait() // block here until all three answer
+	fmt.Println("200 OK — response assembled ✓")
 }

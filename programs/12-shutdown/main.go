@@ -1,5 +1,5 @@
-// graceful shutdown: drain requests before dying.
-// (sends ITSELF a SIGTERM to simulate a deploy)
+// graceful shutdown: deploy day for your orders API.
+// (sends ITSELF a SIGTERM so you can watch the drain)
 package main
 
 import (
@@ -21,15 +21,15 @@ func main() {
 	defer stop()
 
 	go srv.ListenAndServe()
-	fmt.Println("serving on :8091")
+	fmt.Println("orders API serving on :8091")
 
-	go func() { // pretend k8s kills us in 300ms
+	go func() { // pretend k8s deploys in 300ms
 		time.Sleep(300 * time.Millisecond)
 		syscall.Kill(os.Getpid(), syscall.SIGTERM)
 	}()
 
 	<-ctx.Done() // block until the signal
-	fmt.Println("SIGTERM received, draining…")
+	fmt.Println("SIGTERM: stop taking orders, finish the open ones…")
 
 	shCtx, cancel := context.WithTimeout(
 		context.Background(), 5*time.Second)
@@ -37,5 +37,5 @@ func main() {
 	if err := srv.Shutdown(shCtx); err != nil {
 		panic(err)
 	}
-	fmt.Println("in-flight requests done, clean exit ✓")
+	fmt.Println("all in-flight requests served — clean exit ✓")
 }
