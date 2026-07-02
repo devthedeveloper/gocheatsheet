@@ -167,6 +167,15 @@ body{
   border-top:1px dashed var(--line);padding-top:9px;margin-top:auto;
 }
 .card .use b{color:var(--ink)}
+.eli{
+  background:#fff8e7;border:1px solid #eee0b6;border-radius:10px;
+  padding:9px 12px;font-size:13.5px;color:#6b5b2e;line-height:1.55;
+}
+.eli b{color:#8a6d1a}
+.eli code{background:#fff;border:1px solid #eee0b6;border-radius:5px;padding:0 4px;font-size:.9em;color:#0b6bcb}
+ol.how{margin:0 0 0 20px;font-size:13.5px;color:var(--ink-soft)}
+ol.how li{margin:3px 0}
+ol.how b{color:var(--ink)}
 
 /* code */
 .codebox{position:relative}
@@ -448,6 +457,7 @@ defer f.Close() // runs at return,
                 // on ANY exit path
 
 // multiple defers run LIFO</code></pre></div>
+        <p class="eli"><b>💡 Think of it:</b> like bussing your tray the moment you stand up — you make the promise when you sit down (acquire), and it's kept however you leave the table: finished, interrupted, or storming out early with an error.</p>
         <p class="use"><b>Habit:</b> the line after you acquire something (file, lock, rows) is where its <code>defer</code> goes. Pair them instantly.</p>
       </article>
 
@@ -493,6 +503,7 @@ v, ok := ages["bob"] // comma-ok!
 if !ok {
 	fmt.Println("no bob") // v is 0 here
 }</code></pre></div>
+        <p class="eli"><b>💡 Think of it:</b> a bank balance of ₹0 and "no such account" both read as 0. The <code>, ok</code> is you asking the teller which of the two it actually is.</p>
         <p class="use"><b>Gotcha:</b> reading a missing key gives the zero value, silently. Use <code>, ok</code> when "missing" and "zero" mean different things.</p>
       </article>
 
@@ -549,6 +560,7 @@ sum(1, 2, 3)
 count := 0
 inc := func() { count++ } // closure:
 inc(); inc()              // count == 2</code></pre></div>
+        <p class="eli"><b>💡 Think of it:</b> a closure is a function wearing a backpack — it carries the variables from where it was born, and every caller pokes the SAME backpack, not a copy of it.</p>
         <p class="use"><b>Closures capture variables,</b> not copies — that's what made middleware and <code>defer wg.Done()</code> patterns work.</p>
       </article>
 
@@ -568,6 +580,7 @@ func (n Note) Loud() string {
 func (n *Note) Rename(t string) {
 	n.Text = t
 }</code></pre></div>
+        <p class="eli"><b>💡 Think of it:</b> a function is a general instruction; a method is an instruction written inside one object's notebook. <code>(n *Note)</code> = "this page belongs to the real note, edits stick". <code>(n Note)</code> = "this is a photocopy, scribble freely".</p>
         <p class="use"><b>Call them the same way:</b> <code>note.Rename("hi")</code> — Go takes the address for you.</p>
       </article>
 
@@ -582,6 +595,7 @@ var q *Note   // nil until assigned
 if q != nil { // check before use!
 	fmt.Println(q.Text)
 }</code></pre></div>
+        <p class="eli"><b>💡 Think of it:</b> a house vs. its address on a sticky note. <code>&amp;</code> writes the address down; <code>*</code> walks to the house. Passing the note is cheap and lets the receiver repaint the actual house. Passing without a pointer mails them a photocopy of the house — they repaint the copy.</p>
         <p class="use"><b>No pointer arithmetic,</b> no <code>-&gt;</code>. Just: <code>&amp;</code> takes an address, <code>*</code> follows one.</p>
       </article>
 
@@ -646,6 +660,7 @@ type FileStore struct{}
 func (f FileStore) Save(n Note) error {
 	return nil // right method ⇒ Storer ✓
 }</code></pre></div>
+        <p class="eli"><b>💡 Think of it:</b> an interface is a job description, not a badge. Anyone who can actually do the duties (has the methods) automatically has the job — no application form, no <code>implements</code> paperwork. That's exactly why a fake store can step in for the real one in tests.</p>
         <p class="use"><b>Anything</b> with the right method set satisfies the interface — the type never mentions it. That's why swapping a real store for a fake in tests is free.</p>
       </article>
 
@@ -684,6 +699,7 @@ use(n) // happy path stays un-indented</code></pre></div>
 
 // errors read like a story:
 // "saving note 7: connection refused"</code></pre></div>
+        <p class="eli"><b>💡 Think of it:</b> every <code>%w</code> drops a breadcrumb. When something fails three layers deep at 2am, the log reads like directions back to the crime scene: saving note 7 → querying db → connection refused.</p>
         <p class="use"><b><code>%w</code> not <code>%v</code>:</b> <code>%w</code> keeps the original error inside so <code>errors.Is</code> still works on it.</p>
       </article>
 
@@ -739,6 +755,7 @@ go func() {      // anonymous is common
 
 // ⚠ main() exiting kills ALL goroutines.
 // You must wait for them ↓</code></pre></div>
+        <p class="eli"><b>💡 Think of it:</b> <code>go</code> hires a helper who starts immediately while you keep working. But when <code>main</code> goes home, all helpers get sent home too — finished or not. That's why every <code>go</code> needs a matching way to wait (next card).</p>
         <p class="use"><b>A goroutine is cheap</b> (a few KB) — but fire-and-forget without a way to wait or fail is a bug factory.</p>
       </article>
 
@@ -768,6 +785,7 @@ msg := <-ch    // receive: waits for send
 
 close(ch) // sender says "no more"
 for v := range ch { } // until closed</code></pre></div>
+        <p class="eli"><b>💡 Think of it:</b> an unbuffered channel is handing a coffee directly to a colleague — you stand there holding it until they take it. A buffered one is their desk: you can drop it and walk away, until the desk is full.</p>
         <p class="use"><b>Arrow points the way data flows:</b> <code>ch &lt;- x</code> puts in, <code>x := &lt;-ch</code> takes out. Only the <em>sender</em> closes.</p>
       </article>
 
@@ -807,6 +825,7 @@ func hit(page string) {
 	defer mu.Unlock()
 	visits[page]++ // one at a time
 }</code></pre></div>
+        <p class="eli"><b>💡 Think of it:</b> one bathroom key for the whole petrol station. <code>Lock</code> takes the key, everyone else queues, <code>Unlock</code> hands it back. Nobody ever walks in on anybody.</p>
         <p class="use"><b>Two goroutines + one map = crash</b> without this. Run <code>go run -race .</code> to catch races in tests.</p>
       </article>
 
@@ -891,6 +910,7 @@ store.Get(ctx, id) // dies with client
 ctx, cancel := context.WithTimeout(
 	ctx, 5*time.Second)
 defer cancel()</code></pre></div>
+        <p class="eli"><b>💡 Think of it:</b> the customer walked out — stop cooking their order. Context is the order ticket every function down the chain holds a copy of; cancel it once and the whole kitchen stops.</p>
         <p class="use"><b>Rule:</b> <code>ctx</code> is always the first parameter, and you pass it down — never store it in a struct field.</p>
       </article>
 

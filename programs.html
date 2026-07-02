@@ -164,6 +164,15 @@ body{
   border-top:1px dashed var(--line);padding-top:9px;margin-top:auto;
 }
 .card .use b{color:var(--ink)}
+.eli{
+  background:#fff8e7;border:1px solid #eee0b6;border-radius:10px;
+  padding:9px 12px;font-size:13.5px;color:#6b5b2e;line-height:1.55;
+}
+.eli b{color:#8a6d1a}
+.eli code{background:#fff;border:1px solid #eee0b6;border-radius:5px;padding:0 4px;font-size:.9em;color:#0b6bcb}
+ol.how{margin:0 0 0 20px;font-size:13.5px;color:var(--ink-soft)}
+ol.how li{margin:3px 0}
+ol.how b{color:var(--ink)}
 
 /* code */
 .codebox{position:relative}
@@ -320,6 +329,7 @@ go run -race ./03-mutex    # extra credit: watch Go catch the race</code></pre><
       <article class="card" data-kw="goroutine go keyword concurrent interleave main dies exit">
         <h3><span class="num">01</span> goroutines <span class="tag">start here</span></h3>
         <p class="what">One keyword makes it concurrent. The catch: when <code>main</code> returns, everyone dies.</p>
+        <p class="eli"><b>💡 Everyday version:</b> your API gets 50 requests at once and handles them all simultaneously — that's goroutines, and the HTTP server spawns them for you. <code>go say("A")</code> is you hiring a helper: they start working while you carry on. But <code>main</code> is the shop owner — when the owner locks up and goes home, every helper stops mid-task.</p>
         <div class="codebox"><pre><code>package main
 
 import (
@@ -361,6 +371,11 @@ B 3</pre></div>
       <article class="card" data-kw="waitgroup wg add done wait finish workers sync">
         <h3><span class="num">02</span> wg.Wait() <span class="tag">sync</span></h3>
         <p class="what">The fix for "main dies too early": count work in, count work out.</p>
+        <p class="eli"><b>💡 Everyday version:</b> your endpoint must call the user service, the orders service and the notifications service, then respond once ALL three answer. A WaitGroup is a tally on a whiteboard: <code>wg.Add(1)</code> = "one more job is out there", <code>wg.Done()</code> = a worker crossing their job off, <code>wg.Wait()</code> = you standing at the board, refusing to move until the tally reads zero.</p>
+        <ol class="how">
+        <li><b><code>wg.Add(1)</code> before <code>go</code></b> — write it on the board <em>before</em> the worker leaves, or you might check the board while it still says 0 and walk off early.</li>
+        <li><b><code>defer wg.Done()</code> as the worker's first line</b> — the job gets crossed off no matter how the worker exits, even on an error.</li>
+        <li><b><code>wg.Wait()</code> blocks</b> until the count is back to 0 — then, and only then, main continues.</p>
         <div class="codebox"><pre><code>package main
 
 import (
@@ -400,6 +415,7 @@ all done ✓</pre></div>
       <article class="card" data-kw="mutex race data race counter lock unlock broken lost updates">
         <h3><span class="num">03</span> mutex vs the race <span class="tag">the big one</span></h3>
         <p class="what">100 goroutines bump a counter 1,000 times each. Watch two-thirds of the increments vanish.</p>
+        <p class="eli"><b>💡 Everyday version:</b> two requests hit "add ₹100 to wallet" at the same moment. Both read balance 500, both compute 600, both write 600 — one deposit just vanished. That's the race. A mutex is the single bathroom key at a petrol station: <code>Lock()</code> takes the key, everyone else queues, <code>Unlock()</code> hands it back. Only one goroutine touches the money at a time.</p>
         <div class="codebox"><pre><code>package main
 
 import (
@@ -457,6 +473,7 @@ with mutex:     100000 ✓
       <article class="card" data-kw="channel send receive close range blocks handshake">
         <h3><span class="num">04</span> channels <span class="tag">pipes</span></h3>
         <p class="what">A typed pipe between goroutines. Sends block until someone receives — watch the lockstep.</p>
+        <p class="eli"><b>💡 Everyday version:</b> one teammate unzips uploaded files, another processes them. The channel is the hatch between their desks. Unbuffered means hand-to-hand: the sender stands there holding the file until the receiver takes it — that's why the output alternates send, receive, send, receive.</p>
         <div class="codebox"><pre><code>package main
 
 import "fmt"
@@ -492,6 +509,7 @@ channel drained, bye</pre></div>
       <article class="card" data-kw="select timeout first ready multiple channels time.After">
         <h3><span class="num">05</span> select + timeout <span class="tag">wait smart</span></h3>
         <p class="what">Wait on a fast worker, a slow worker, and a deadline — whichever speaks first wins.</p>
+        <p class="eli"><b>💡 Everyday version:</b> you ordered from two food apps and you'll eat whichever arrives first — and if nothing shows up in 30 minutes, you're making noodles. <code>select</code> watches all cases at once and takes the first one ready; <code>time.After</code> is the noodle deadline. Backend translation: try the cache and the DB together, take the fastest, never wait forever.</p>
         <div class="codebox"><pre><code>package main
 
 import (
@@ -533,6 +551,7 @@ fast finished
       <article class="card" data-kw="worker pool jobs results queue throughput bounded">
         <h3><span class="num">06</span> worker pool <span class="tag">throughput</span></h3>
         <p class="what">Nine jobs, three workers, one queue. The math shows up in the wall clock.</p>
+        <p class="eli"><b>💡 Everyday version:</b> a café with one order queue and three baristas — whoever's free grabs the next order. Backend translation: 10,000 images to thumbnail, but you only want 3 hitting the disk at once. The queue feeds a fixed crew instead of hiring 10,000 workers and melting the machine.</p>
         <div class="codebox"><pre><code>package main
 
 import (
@@ -594,6 +613,7 @@ worker 3 finished job 7
       <article class="card" data-kw="context cancel timeout done stop worker deadline">
         <h3><span class="num">07</span> context <span class="tag">please stop</span></h3>
         <p class="what">A worker that ticks forever — until the context's 350ms deadline pulls the plug.</p>
+        <p class="eli"><b>💡 Everyday version:</b> a customer walks out of the restaurant — the kitchen should stop cooking their order, not finish it for nobody. The context is the order ticket every function holds a copy of; when it's cancelled (client disconnected, or the timer rang), <code>ctx.Done()</code> fires and everyone holding that ticket stops. This is how a request timeout flows through your whole backend.</p>
         <div class="codebox"><pre><code>package main
 
 import (
@@ -634,6 +654,7 @@ main: clean exit</pre></div>
       <article class="card" data-kw="errgroup fan out first error x/sync limit parallel">
         <h3><span class="num">08</span> errgroup <span class="tag">x/sync</span></h3>
         <p class="what">Fan out three calls; one fails. The group hands you exactly the first error.</p>
+        <p class="eli"><b>💡 Everyday version:</b> a team lead hands three devs a task each and waits at standup. If anyone hit a blocker, the lead hears the FIRST blocker and can call the whole thing off. It's the WaitGroup whiteboard from program 02, but the workers can also report failures — which is why it's the default for calling several services at once.</p>
         <div class="codebox"><pre><code>// needs: go get golang.org/x/sync/errgroup
 package main
 
@@ -690,6 +711,7 @@ g.Wait() → boom: https://bad.example</pre></div>
       <article class="card" data-kw="json marshal unmarshal encode decode struct tags omitempty">
         <h3><span class="num">09</span> JSON both ways <span class="tag">encoding</span></h3>
         <p class="what">Struct to JSON and back, with tags doing the naming.</p>
+        <p class="eli"><b>💡 Everyday version:</b> your struct is the organized shelf in your warehouse; JSON is the cardboard box you ship. Marshal = packing the box with a labelled manifest (tags decide the labels); Unmarshal = unpacking a box someone sent you onto your shelf. Every request body you'll ever read is this one round trip.</p>
         <div class="codebox"><pre><code>package main
 
 import (
@@ -734,6 +756,7 @@ func main() {
       <article class="card" data-kw="http server client api get json request response mux pathvalue">
         <h3><span class="num">10</span> HTTP server + client <span class="tag">one file</span></h3>
         <p class="what">A JSON API and the code that calls it — the server runs in a goroutine (lesson 01 pays off).</p>
+        <p class="eli"><b>💡 Everyday version:</b> both halves of your day job in 40 lines — the service that answers, and the client that asks (also you, whenever your service calls another service). The counter <code>n</code> is in-memory state: it lives exactly as long as the process, which is why a restart resets anything you didn't put in a database.</p>
         <div class="codebox"><pre><code>package main
 
 import (
@@ -782,6 +805,7 @@ func main() {
       <article class="card" data-kw="mysql database sql connect insert query driver ping docker">
         <h3><span class="num">11</span> MySQL connect + CRUD <span class="tag">database/sql</span></h3>
         <p class="what">Open, ping, create, insert, read back — the whole database handshake in 40 lines.</p>
+        <p class="eli"><b>💡 Everyday version:</b> <code>sql.Open</code> is saving a phone number to your contacts — no call made yet. <code>db.Ping</code> is actually dialling to check someone picks up. And the <code>?</code> placeholder is a printed form with a fixed answer box: whatever the user writes stays INSIDE the box and can never rewrite the form — that's why injection can't happen.</p>
         <div class="codebox"><pre><code>// needs: go get github.com/go-sql-driver/mysql
 // and a server:
 //   docker run -d --name mysql-demo \
@@ -838,6 +862,7 @@ read back: Gopher</pre></div>
       <article class="card" data-kw="graceful shutdown sigterm signal drain deploy kubernetes server">
         <h3><span class="num">12</span> graceful shutdown <span class="tag">production</span></h3>
         <p class="what">The deploy-day pattern — this program sends <em>itself</em> a SIGTERM so you can watch the drain.</p>
+        <p class="eli"><b>💡 Everyday version:</b> closing a restaurant properly — lock the front door (stop accepting requests), let seated guests finish eating (drain in-flight work), then lights out. Kubernetes is the landlord: it rings the closing bell (SIGTERM) and cuts the power ~30s later. Skip this pattern and every deploy kicks users out mid-bite.</p>
         <div class="codebox"><pre><code>package main
 
 import (

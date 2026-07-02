@@ -168,6 +168,15 @@ body{
   border-top:1px dashed var(--line);padding-top:9px;margin-top:auto;
 }
 .card .use b{color:var(--ink)}
+.eli{
+  background:#fff8e7;border:1px solid #eee0b6;border-radius:10px;
+  padding:9px 12px;font-size:13.5px;color:#6b5b2e;line-height:1.55;
+}
+.eli b{color:#8a6d1a}
+.eli code{background:#fff;border:1px solid #eee0b6;border-radius:5px;padding:0 4px;font-size:.9em;color:#0b6bcb}
+ol.how{margin:0 0 0 20px;font-size:13.5px;color:var(--ink-soft)}
+ol.how li{margin:3px 0}
+ol.how b{color:var(--ink)}
 
 /* code */
 .codebox{position:relative}
@@ -514,6 +523,7 @@ if err := g.Wait(); err != nil {
 }
 
 g.SetLimit(8) // max 8 at once</code></pre></div>
+        <p class="eli"><b>💡 Think of it:</b> a WaitGroup that also takes complaints. The lead sends N devs off, waits for everyone, and hears the first blocker — and the shared context tells the rest to stop wasting time on a doomed request.</p>
         <p class="use"><b>Default choice for fan-out with failures.</b> WaitGroup + error plumbing + cancellation + a concurrency cap, in four lines.</p>
       </article>
 
@@ -537,6 +547,7 @@ for _, j := range work {
 }
 close(jobs) // ends the ranges
 wg.Wait()</code></pre></div>
+        <p class="eli"><b>💡 Think of it:</b> a café hires 4 baristas, not one barista per customer. The queue absorbs the morning rush; the crew size caps the chaos.</p>
         <p class="use"><b>Use when work arrives over time</b> or per-item goroutines would be too many. Fixed cost, steady throughput.</p>
       </article>
 
@@ -554,6 +565,7 @@ for _, t := range tasks {
 
 // struct{} is zero bytes — the
 // channel IS the counter</code></pre></div>
+        <p class="eli"><b>💡 Think of it:</b> a bouncer with 10 wristbands. No wristband, no entry; hand it back on your way out. The buffered channel IS the stack of wristbands.</p>
         <p class="use"><b>Same idea as <code>g.SetLimit</code></b> when you're not using errgroup — e.g. capping calls to a rate-limited API.</p>
       </article>
 
@@ -570,6 +582,7 @@ var getDB = sync.OnceValue(connect)
 var hits atomic.Int64
 hits.Add(1)      // no mutex needed
 n := hits.Load()</code></pre></div>
+        <p class="eli"><b>💡 Think of it:</b> the first person to ask for the wifi password walks to the front desk; everyone after reads it off the whiteboard. <code>Once</code> guarantees exactly one trip to the desk, even if 100 people ask in the same instant.</p>
         <p class="use"><b>A lone counter or flag doesn't need a mutex</b> — <code>atomic</code> types are simpler and faster. Anything bigger: mutex.</p>
       </article>
 
@@ -601,6 +614,7 @@ case <-tick: // skipped while nil
 case v := <-work:
 	use(v)
 }</code></pre></div>
+        <p class="eli"><b>💡 Think of it:</b> unplugging a doorbell. The button is still on the wall — the case still compiles — it just never rings while unplugged.</p>
         <p class="use"><b>Set a channel variable to nil to switch its case off</b> mid-loop — e.g. after it's drained. No booleans needed.</p>
       </article>
 
@@ -643,6 +657,7 @@ if errors.Is(err,
 if errors.Is(err, context.Canceled) {
 	// someone called cancel()
 }</code></pre></div>
+        <p class="eli"><b>💡 Think of it:</b> an egg timer you set for every request. Whatever's still cooking when it rings gets abandoned — and <code>defer cancel()</code> is putting the timer back in the drawer when you finish early.</p>
         <p class="use"><b>Skipping <code>defer cancel()</code> leaks</b> a timer and a goroutine until the deadline — <code>go vet</code> flags it.</p>
       </article>
 
@@ -841,6 +856,7 @@ buf.Reset() // pools return DIRTY items
 defer bufs.Put(buf)
 
 // use buf …</code></pre></div>
+        <p class="eli"><b>💡 Think of it:</b> shared office bikes instead of buying a new bike for every errand — grab one from the rack, ride, put it back. Just adjust the seat first (<code>Reset()</code>): the last rider left it their way.</p>
         <p class="use"><b>For big objects allocated per-request</b> (buffers, scratch slices). Measure before and after — pools can lose to the allocator.</p>
       </article>
 
@@ -955,6 +971,7 @@ shCtx, cancel := context.WithTimeout(
 defer cancel()
 srv.Shutdown(shCtx) // drain in-flight
                     // requests first</code></pre></div>
+        <p class="eli"><b>💡 Think of it:</b> closing time at a restaurant — lock the door, let seated guests finish, then lights out. SIGTERM is the "we close in 30 seconds" bell.</p>
         <p class="use"><b>Kubernetes sends SIGTERM before killing.</b> This pattern is the difference between clean deploys and dropped requests.</p>
       </article>
 
@@ -1009,6 +1026,7 @@ v, err, _ := g.Do(key,
 // 100 goroutines ask for the same
 // key at once → ONE fetch runs,
 // all 100 share its result</code></pre></div>
+        <p class="eli"><b>💡 Think of it:</b> 100 coworkers ask "what's the wifi password?" in the same second. One person walks to reception; the other 99 wait at their desks and share the answer when it arrives. One trip, 100 answers.</p>
         <p class="use"><b>The fix for cache stampedes:</b> when a hot cache key expires, exactly one request rebuilds it instead of all of them.</p>
       </article>
 
@@ -1031,6 +1049,7 @@ err == nil // FALSE!
 // type *APIError is set → not nil.
 // fix: functions return `error`,
 // never concrete error types</code></pre></div>
+        <p class="eli"><b>💡 Think of it:</b> an empty envelope is still an envelope. The interface holds (type, value); returning a nil <code>*APIError</code> puts an empty envelope into <code>err</code> — and "is there an envelope?" (<code>err != nil</code>) answers yes.</p>
         <p class="use"><b>The #1 Go interview question</b> because it's the #1 real bug. Declare <code>error</code> return types, always.</p>
       </article>
 
@@ -1048,6 +1067,7 @@ case <-ctx.Done():
 
 ch := make(chan int, 1) // buffered:
 // sender delivers and exits. fixed.</code></pre></div>
+        <p class="eli"><b>💡 Think of it:</b> a courier standing at a door forever because the recipient moved out. Every timed-out request strands another courier in the hallway — until the building (your RAM) is full of them.</p>
         <p class="use"><b>Every abandoned send is a leak.</b> Rule: if a receiver might give up, buffer the channel by the number of senders.</p>
       </article>
 
@@ -1086,6 +1106,7 @@ func (s Store) Get(id int) Note {
 // always pointer receivers on
 // mutex-holding types. go vet catches
 // this — another reason to run it.</code></pre></div>
+        <p class="eli"><b>💡 Think of it:</b> photocopying the bathroom key. Now two people each hold "the" key and walk in on each other. A lock only works when there's exactly one of it.</p>
         <p class="use"><b>A copied lock is two locks.</b> Same rule for passing structs with mutexes to functions: pointers only.</p>
       </article>
 
