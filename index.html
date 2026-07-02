@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Go Cheat Sheet — everything you keep forgetting</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#eef5f8;
+  --ink:#12313c;
+  --ink-soft:#4c6a75;
+  --card:#ffffff;
+  --line:#d8e6ec;
+  --navy:#0e2d3a;
+
+  --c-basics:#f5a623;
+  --c-flow:#fb7a48;
+  --c-coll:#2fac74;
+  --c-func:#8b5cf6;
+  --c-struct:#2f80ed;
+  --c-err:#ef5563;
+  --c-conc:#00add8;
+  --c-web:#4c6ef5;
+  --c-gotcha:#e0509b;
+
+  --radius:18px;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;scroll-padding-top:86px}
+@media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto} *{transition:none!important;animation:none!important} }
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:'Atkinson Hyperlegible',system-ui,sans-serif;
+  font-size:16px;line-height:1.55;
+}
+::selection{background:#bdeaf6}
+
+/* ---------------- top nav ---------------- */
+.topbar{
+  position:sticky;top:0;z-index:50;
+  background:rgba(238,245,248,.88);backdrop-filter:blur(8px);
+  border-bottom:1px solid var(--line);
+}
+.topbar-inner{
+  max-width:1240px;margin:0 auto;padding:10px 20px;
+  display:flex;align-items:center;gap:10px;overflow-x:auto;
+  scrollbar-width:none;
+}
+.topbar-inner::-webkit-scrollbar{display:none}
+.brand{
+  font-family:Fredoka,sans-serif;font-weight:700;font-size:17px;
+  white-space:nowrap;margin-right:6px;color:var(--navy);
+  text-decoration:none;flex:0 0 auto;
+}
+.brand b{color:var(--c-conc)}
+.chip{
+  flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;
+  font-family:Fredoka,sans-serif;font-weight:600;font-size:13.5px;
+  color:var(--ink);text-decoration:none;
+  padding:6px 13px;border-radius:99px;background:#fff;
+  border:1.5px solid var(--line);
+  transition:transform .12s ease, border-color .12s ease;
+}
+.chip:hover{transform:translateY(-1px)}
+.chip .dot{width:9px;height:9px;border-radius:50%;background:var(--dot)}
+.chip.active{border-color:var(--dot);box-shadow:0 0 0 3px color-mix(in srgb,var(--dot) 18%, transparent)}
+.chip:focus-visible,a:focus-visible,button:focus-visible,input:focus-visible{
+  outline:3px solid var(--c-conc);outline-offset:2px;
+}
+
+/* ---------------- hero ---------------- */
+.wrap{max-width:1240px;margin:0 auto;padding:0 20px}
+.hero{position:relative;margin-top:64px}
+.hero-card{
+  position:relative;
+  background:linear-gradient(160deg,#0e2d3a 0%,#10404f 70%,#0f4f5e 100%);
+  border-radius:28px;
+  padding:56px 48px 44px;
+  color:#eaf7fb;
+  overflow:visible;
+  box-shadow:0 18px 40px -18px rgba(14,45,58,.45);
+}
+.gopher{
+  position:absolute;top:-58px;right:6%;width:172px;height:auto;
+  pointer-events:none;
+}
+.eyebrow{
+  display:inline-flex;gap:8px;align-items:center;
+  font-family:Fredoka,sans-serif;font-weight:600;font-size:12.5px;
+  letter-spacing:.16em;text-transform:uppercase;color:#8fd8ea;
+}
+.eyebrow::before{content:"";width:22px;height:3px;border-radius:2px;background:var(--c-conc)}
+.hero h1{
+  font-family:Fredoka,sans-serif;font-weight:700;
+  font-size:clamp(30px,4.6vw,52px);line-height:1.08;
+  margin:14px 0 12px;max-width:15ch;
+}
+.hero h1 .hl{position:relative;white-space:nowrap}
+.hero h1 .hl::after{
+  content:"";position:absolute;left:-2%;right:-2%;bottom:6%;height:.32em;
+  background:var(--hl);border-radius:4px;z-index:-1;opacity:.9;
+}
+.hero h1 .hl.a{--hl:#f5a62388} .hero h1 .hl.b{--hl:#00add888}
+.hero p.sub{max-width:52ch;color:#bfe2ec;font-size:17px}
+.searchrow{margin-top:26px;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.search{
+  flex:1 1 320px;max-width:520px;display:flex;align-items:center;gap:10px;
+  background:#fff;border-radius:99px;padding:12px 20px;
+  border:2px solid transparent;
+}
+.search:focus-within{border-color:var(--c-conc)}
+.search svg{flex:0 0 auto}
+.search input{
+  border:0;outline:0;flex:1;font:inherit;font-size:16px;color:var(--ink);
+  background:transparent;min-width:0;
+}
+.search kbd{
+  font-family:var(--mono);font-size:12px;color:var(--ink-soft);
+  border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;padding:1px 7px;
+}
+.hits{font-family:Fredoka,sans-serif;font-weight:600;font-size:14px;color:#8fd8ea;min-width:9ch}
+
+/* ---------------- sections ---------------- */
+.section{margin-top:64px}
+.sec-head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+.sec-head h2{
+  font-family:Fredoka,sans-serif;font-weight:700;font-size:28px;
+  display:flex;align-items:center;gap:12px;
+}
+.sec-head h2::before{
+  content:"";width:16px;height:16px;border-radius:5px;background:var(--tint);
+  transform:rotate(45deg);flex:0 0 auto;
+}
+.sec-head .whisper{color:var(--ink-soft);font-size:15px}
+.grid{
+  margin-top:18px;
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:18px;
+}
+.card{
+  background:var(--card);
+  border:1.5px solid var(--line);
+  border-top:5px solid var(--tint);
+  border-radius:var(--radius);
+  padding:18px 20px 16px;
+  display:flex;flex-direction:column;gap:10px;
+  transition:transform .15s ease, box-shadow .15s ease;
+}
+.card:hover{transform:translateY(-3px);box-shadow:0 14px 28px -16px rgba(14,45,58,.35)}
+.card h3{
+  font-family:Fredoka,sans-serif;font-weight:600;font-size:17.5px;
+  display:flex;align-items:center;gap:8px;
+}
+.card h3 .tag{
+  margin-left:auto;font-size:11px;font-weight:600;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--tint);
+  background:color-mix(in srgb,var(--tint) 12%, white);
+  border-radius:99px;padding:3px 10px;
+}
+.card .use{
+  font-size:13.5px;color:var(--ink-soft);
+  border-top:1px dashed var(--line);padding-top:9px;margin-top:auto;
+}
+.card .use b{color:var(--ink)}
+
+/* code */
+.codebox{position:relative}
+pre{
+  background:#f0f6f9;
+  border:1px solid #dcebf2;
+  border-radius:12px;
+  padding:13px 15px;
+  overflow-x:auto;
+  font-family:var(--mono);font-size:12.4px;line-height:1.62;
+  tab-size:4;font-variant-ligatures:none;
+}
+code{font-family:var(--mono);font-variant-ligatures:none}
+.k{color:#c2186a;font-weight:700}          /* keywords */
+.t{color:#0b6bcb}                          /* types & builtins */
+.s{color:#188a4c}                          /* strings */
+.c{color:#7b93a0;font-style:italic}        /* comments */
+.n{color:#b45309}                          /* numbers */
+.copy{
+  position:absolute;top:8px;right:8px;
+  font-family:Fredoka,sans-serif;font-weight:600;font-size:11.5px;
+  border:1px solid var(--line);border-radius:8px;background:#fff;
+  color:var(--ink-soft);padding:3px 9px;cursor:pointer;opacity:0;
+  transition:opacity .12s ease;
+}
+.card:hover .copy,.copy:focus-visible{opacity:1}
+.copy.done{color:#188a4c;border-color:#188a4c}
+p.note{font-size:14px;color:var(--ink-soft)}
+p.note code, .use code, .decide code{
+  background:#eef5f8;border:1px solid var(--line);border-radius:5px;
+  padding:0 5px;font-size:.9em;color:#0b6bcb;
+}
+
+/* decision strips */
+.decide{
+  grid-column:1/-1;
+  background:color-mix(in srgb,var(--tint) 7%, white);
+  border:1.5px solid color-mix(in srgb,var(--tint) 35%, white);
+  border-radius:var(--radius);
+  padding:20px 22px 14px;
+}
+.decide h3{
+  font-family:Fredoka,sans-serif;font-weight:700;font-size:19px;margin-bottom:12px;
+  display:flex;align-items:center;gap:10px;
+}
+.decide h3::before{content:"?";display:grid;place-items:center;width:26px;height:26px;
+  border-radius:50%;background:var(--tint);color:#fff;font-size:16px;flex:0 0 auto}
+.drow{
+  display:grid;grid-template-columns:minmax(200px,1.2fr) auto minmax(200px,1fr);
+  gap:10px;align-items:center;
+  padding:9px 4px;border-top:1px dashed color-mix(in srgb,var(--tint) 30%, white);
+  font-size:14.5px;
+}
+.drow:first-of-type{border-top:0}
+.drow .arrow{color:var(--tint);font-weight:700;font-family:Fredoka,sans-serif}
+.drow .pick{font-weight:700}
+.drow .pick small{display:block;font-weight:400;color:var(--ink-soft);font-size:13px}
+@media (max-width:640px){
+  .drow{grid-template-columns:1fr;gap:2px}
+  .drow .arrow{display:none}
+}
+
+/* gotcha wall */
+#gotchas .card{border-top-width:1.5px;border-top-color:var(--line);position:relative;background:#fff8fb}
+#gotchas .card::before{
+  content:"";position:absolute;top:-9px;left:50%;transform:translateX(-50%) rotate(-2deg);
+  width:78px;height:18px;background:color-mix(in srgb,var(--c-gotcha) 30%, white);
+  opacity:.85;border-radius:3px;
+}
+#gotchas .card:nth-child(odd){transform:rotate(-.6deg)}
+#gotchas .card:nth-child(even){transform:rotate(.5deg)}
+#gotchas .card:hover{transform:rotate(0) translateY(-3px)}
+
+/* footer */
+footer{
+  margin:80px 0 40px;text-align:center;color:var(--ink-soft);font-size:14px;
+}
+footer .paw{font-family:Fredoka,sans-serif;font-weight:600;color:var(--navy)}
+
+.hidden{display:none!important}
+
+@media (max-width:760px){
+  .hero-card{padding:44px 26px 34px}
+  .gopher{width:120px;top:-40px;right:5%}
+  .section{margin-top:48px}
+}
+@media print{
+  .topbar,.searchrow,.copy,.gopher{display:none!important}
+  .hero-card{box-shadow:none;color:#000;background:#fff;border:2px solid #000}
+  .hero p.sub{color:#333}
+  .card{break-inside:avoid;box-shadow:none}
+  body{background:#fff}
+}
+</style>
+</head>
+<body>
+
+<nav class="topbar" aria-label="Sections">
+  <div class="topbar-inner">
+    <a class="brand" href="#top">go<b>cheat</b>.sheet</a>
+    <a class="chip" style="--dot:var(--c-basics)" href="#basics"><span class="dot"></span>Basics</a>
+    <a class="chip" style="--dot:var(--c-flow)" href="#flow"><span class="dot"></span>Flow</a>
+    <a class="chip" style="--dot:var(--c-coll)" href="#collections"><span class="dot"></span>Slices &amp; Maps</a>
+    <a class="chip" style="--dot:var(--c-func)" href="#functions"><span class="dot"></span>Functions</a>
+    <a class="chip" style="--dot:var(--c-struct)" href="#structs"><span class="dot"></span>Structs</a>
+    <a class="chip" style="--dot:var(--c-err)" href="#errors"><span class="dot"></span>Errors</a>
+    <a class="chip" style="--dot:var(--c-conc)" href="#concurrency"><span class="dot"></span>Goroutines</a>
+    <a class="chip" style="--dot:var(--c-web)" href="#web"><span class="dot"></span>Web &amp; JSON</a>
+    <a class="chip" style="--dot:var(--c-gotcha)" href="#gotchas"><span class="dot"></span>Gotchas</a>
+  </div>
+</nav>
+
+<main class="wrap" id="top">
+
+  <header class="hero">
+    <div class="hero-card">
+      <svg class="gopher" viewBox="0 0 200 112" aria-hidden="true">
+        <circle cx="45" cy="38" r="16" fill="#00add8" stroke="#0b2530" stroke-width="3"/>
+        <circle cx="155" cy="38" r="16" fill="#00add8" stroke="#0b2530" stroke-width="3"/>
+        <circle cx="45" cy="38" r="7" fill="#8fdcef"/>
+        <circle cx="155" cy="38" r="7" fill="#8fdcef"/>
+        <path d="M25 112 Q25 24 100 24 Q175 24 175 112 Z" fill="#00add8" stroke="#0b2530" stroke-width="3"/>
+        <circle cx="70" cy="72" r="17" fill="#fff" stroke="#0b2530" stroke-width="3"/>
+        <circle cx="130" cy="72" r="17" fill="#fff" stroke="#0b2530" stroke-width="3"/>
+        <circle class="pupil" cx="73" cy="75" r="6.5" fill="#0b2530"/>
+        <circle class="pupil" cx="133" cy="75" r="6.5" fill="#0b2530"/>
+        <ellipse cx="100" cy="94" rx="13" ry="9" fill="#f5d7b2" stroke="#0b2530" stroke-width="3"/>
+        <ellipse cx="100" cy="89" rx="5" ry="3.5" fill="#5b4632"/>
+        <rect x="94" y="98" width="12" height="11" rx="2.5" fill="#fff" stroke="#0b2530" stroke-width="2.5"/>
+        <rect x="28" y="101" width="27" height="12" rx="6" fill="#f5d7b2" stroke="#0b2530" stroke-width="3"/>
+        <rect x="145" y="101" width="27" height="12" rx="6" fill="#f5d7b2" stroke="#0b2530" stroke-width="3"/>
+      </svg>
+      <span class="eyebrow">Team cheat sheet · Go 1.25</span>
+      <h1>Everything you <span class="hl a">keep forgetting</span> about <span class="hl b">Go</span></h1>
+      <p class="sub">You learned it. It'll come back the second you see it. Search below,
+      copy the snippet, get back to work — and check the <em>“which one do I use?”</em> boxes
+      before asking the senior dev. 🙂</p>
+      <div class="searchrow">
+        <label class="search">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4c6a75" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="q" type="search" placeholder="try “map”, “channel”, “json”, “err”…" aria-label="Search the cheat sheet">
+          <kbd>/</kbd>
+        </label>
+        <span class="hits" id="hits"></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ================= BASICS ================= -->
+  <section class="section" id="basics" style="--tint:var(--c-basics)">
+    <div class="sec-head"><h2>Basics</h2><span class="whisper">variables, printing, converting — the stuff that slips first</span></div>
+    <div class="grid">
+
+      <article class="card" data-kw="hello world package main import start program">
+        <h3>A whole Go program <span class="tag">start here</span></h3>
+        <div class="codebox"><pre><code>package main
+
+import "fmt"
+
+func main() {
+	fmt.Println("Hello, gopher!")
+}</code></pre></div>
+        <p class="use"><b>Remember:</b> executable programs are always <code>package main</code> with a <code>func main()</code>. Run with <code>go run .</code></p>
+      </article>
+
+      <article class="card" data-kw="variables var := declare const constant assign short">
+        <h3>Declaring variables — 3 ways</h3>
+        <div class="codebox"><pre><code>var name string = "Ada" // full form
+age := 30               // short form ✨
+const MaxNotes = 100    // never changes
+
+var a, b = 1, 2         // two at once
+x := 5
+x++                     // no ++x in Go</code></pre></div>
+        <p class="use"><b>Use <code>:=</code></b> 95% of the time. It only works <em>inside</em> functions — at package level you need <code>var</code>.</p>
+      </article>
+
+      <article class="card" data-kw="zero value default nil empty initialize">
+        <h3>Zero values — nothing is uninitialized</h3>
+        <div class="codebox"><pre><code>var i int      // 0
+var f float64  // 0.0
+var s string   // ""
+var ok bool    // false
+var p *Note    // nil
+// slices, maps, channels, funcs → nil too</code></pre></div>
+        <p class="use"><b>Remember:</b> declaring without assigning is safe — you always get the type's zero value, never garbage.</p>
+      </article>
+
+      <article class="card" data-kw="print fmt println printf sprintf verbs format %v %d %s output log">
+        <h3>Printing — the verbs you forget</h3>
+        <div class="codebox"><pre><code>fmt.Println("plain", 42)  // + newline
+fmt.Printf("%v\n", note)  // any value
+fmt.Printf("%+v\n", note) // + field names
+fmt.Printf("%d %s %t\n", 7, "hi", true)
+fmt.Printf("%q %T\n", "quoted", note)
+msg := fmt.Sprintf("id=%d", 42)</code></pre></div>
+        <p class="use"><b>Debugging a struct?</b> <code>%+v</code> is your best friend. <code>%T</code> tells you a value's type.</p>
+      </article>
+
+      <article class="card" data-kw="convert conversion cast strconv atoi itoa string int float bytes parse">
+        <h3>Converting between types</h3>
+        <div class="codebox"><pre><code>f := 3.9
+i := int(f) // 3 — truncates!
+
+n, err := strconv.Atoi("42") // str→int
+s := strconv.Itoa(42)        // int→str
+
+b := []byte("hello") // string → bytes
+back := string(b)    // and back</code></pre></div>
+        <p class="use"><b>Gotcha:</b> <code>string(42)</code> is NOT "42" — it's the character <code>'*'</code>. Numbers ↔ strings always go through <code>strconv</code> or <code>fmt</code>.</p>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- ================= FLOW ================= -->
+  <section class="section" id="flow" style="--tint:var(--c-flow)">
+    <div class="sec-head"><h2>Control flow</h2><span class="whisper">one loop, honest ifs, and the defer trick</span></div>
+    <div class="grid">
+
+      <article class="card" data-kw="if else condition err check init statement">
+        <h3>if / else — with the init trick</h3>
+        <div class="codebox"><pre><code>if age >= 18 {
+	// no parens needed, braces required
+} else if age > 12 {
+	// ...
+}
+
+// declare + check in one line:
+if err := save(note); err != nil {
+	return err
+}</code></pre></div>
+        <p class="use"><b>Use the init form</b> when the variable is only needed for the check — it keeps <code>err</code> out of the surrounding scope.</p>
+      </article>
+
+      <article class="card" data-kw="for loop while forever range iterate break continue">
+        <h3>for — Go's only loop</h3>
+        <div class="codebox"><pre><code>for i := 0; i < 5; i++ { } // classic
+
+for count < 10 { }         // "while"
+
+for {                      // forever
+	break                  // ...until break
+}
+
+for i, v := range notes { } // range ↓</code></pre></div>
+        <p class="use"><b>Missing <code>while</code>?</b> It's just <code>for</code> with one condition. There is no do-while.</p>
+      </article>
+
+      <article class="card" data-kw="switch case default fallthrough type match branch">
+        <h3>switch — no break needed</h3>
+        <div class="codebox"><pre><code>switch status {
+case 200, 201: // several at once
+	fmt.Println("ok")
+case 404:
+	fmt.Println("missing")
+default:
+	fmt.Println("uh oh")
+}
+
+switch { // no value = tidy if/else chain
+case age < 13:
+	// kid
+case age < 20:
+	// teenager
+}</code></pre></div>
+        <p class="use"><b>Unlike C/JS:</b> cases don't fall through by default. You almost never need <code>break</code> here.</p>
+      </article>
+
+      <article class="card" data-kw="defer cleanup close file unlock lifo resource">
+        <h3>defer — cleanup that can't be forgotten</h3>
+        <div class="codebox"><pre><code>f, err := os.Open("notes.txt")
+if err != nil {
+	return err
+}
+defer f.Close() // runs at return,
+                // on ANY exit path
+
+// multiple defers run LIFO</code></pre></div>
+        <p class="use"><b>Habit:</b> the line after you acquire something (file, lock, rows) is where its <code>defer</code> goes. Pair them instantly.</p>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- ================= COLLECTIONS ================= -->
+  <section class="section" id="collections" style="--tint:var(--c-coll)">
+    <div class="sec-head"><h2>Slices &amp; maps</h2><span class="whisper">the two containers you'll use every single day</span></div>
+    <div class="grid">
+
+      <article class="card" data-kw="slice append make len cap grow list array dynamic">
+        <h3>Slices — your everyday list</h3>
+        <div class="codebox"><pre><code>s := []int{1, 2, 3} // literal
+s = append(s, 4, 5) // grow — reassign!
+first := s[0]
+last := s[len(s)-1]
+
+t := make([]int, 0, 10) // len 0, cap 10
+fmt.Println(len(t), cap(t)) // 0 10</code></pre></div>
+        <p class="use"><b>Always</b> <code>s = append(s, …)</code>. Append returns a (possibly new) slice — dropping the result is a classic bug.</p>
+      </article>
+
+      <article class="card" data-kw="slice slicing copy view share memory subslice cut">
+        <h3>Slicing &amp; copying — views vs clones</h3>
+        <div class="codebox"><pre><code>s := []int{10, 20, 30, 40}
+mid := s[1:3] // [20 30] — a VIEW
+mid[0] = 99   // s changed too!
+
+clone := make([]int, len(s))
+copy(clone, s) // independent now
+// or: clone := slices.Clone(s)</code></pre></div>
+        <p class="use"><b>Remember:</b> <code>s[a:b]</code> shares memory with <code>s</code>. Need independence? <code>copy</code> it.</p>
+      </article>
+
+      <article class="card" data-kw="map dictionary hash key value put get delete comma ok lookup exists">
+        <h3>Maps — put, get, delete, check</h3>
+        <div class="codebox"><pre><code>ages := map[string]int{} // ready to use
+ages["ada"] = 36         // put / update
+delete(ages, "ada")      // remove
+
+v, ok := ages["bob"] // comma-ok!
+if !ok {
+	fmt.Println("no bob") // v is 0 here
+}</code></pre></div>
+        <p class="use"><b>Gotcha:</b> reading a missing key gives the zero value, silently. Use <code>, ok</code> when "missing" and "zero" mean different things.</p>
+      </article>
+
+      <article class="card" data-kw="range loop iterate index value key underscore ignore runes">
+        <h3>range — all the shapes</h3>
+        <div class="codebox"><pre><code>for i, v := range slice { } // idx, val
+for _, v := range slice { } // values
+for i := range slice { }    // indexes
+for k, v := range m { }     // map
+for i := range 5 { }        // 0..4</code></pre></div>
+        <p class="use"><b>Remember:</b> map order is deliberately random — never rely on it. Need order? Sort the keys first.</p>
+      </article>
+
+      <div class="decide" data-kw="array slice map which choose collection decide list">
+        <h3>Which container do I use?</h3>
+        <div class="drow"><span>A list of things (almost always)</span><span class="arrow">→</span><span class="pick">slice <code>[]Note</code><small>grows with append, cheap to pass around</small></span></div>
+        <div class="drow"><span>Look things up by a key</span><span class="arrow">→</span><span class="pick">map <code>map[string]Note</code><small>O(1) lookup, no order</small></span></div>
+        <div class="drow"><span>Fixed size, known at compile time (rare)</span><span class="arrow">→</span><span class="pick">array <code>[3]int</code><small>you'll use these maybe twice a year</small></span></div>
+        <div class="drow"><span>Need order <em>and</em> key lookup</span><span class="arrow">→</span><span class="pick">slice + map together<small>slice keeps order, map finds fast</small></span></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ================= FUNCTIONS ================= -->
+  <section class="section" id="functions" style="--tint:var(--c-func)">
+    <div class="sec-head"><h2>Functions &amp; methods</h2><span class="whisper">multiple returns, receivers, and the pointer question</span></div>
+    <div class="grid">
+
+      <article class="card" data-kw="function multiple return values error signature args parameters">
+        <h3>Functions — returning two things</h3>
+        <div class="codebox"><pre><code>func divide(a, b float64) (float64, error) {
+	if b == 0 {
+		return 0, errors.New("b is zero")
+	}
+	return a / b, nil
+}
+
+result, err := divide(10, 2)</code></pre></div>
+        <p class="use"><b>The Go signature:</b> <code>(value, error)</code>. The caller checks <code>err</code> first, then trusts the value.</p>
+      </article>
+
+      <article class="card" data-kw="variadic dots closure anonymous func capture lambda">
+        <h3>Variadic &amp; closures</h3>
+        <div class="codebox"><pre><code>func sum(nums ...int) int { // any #
+	total := 0
+	for _, n := range nums {
+		total += n
+	}
+	return total
+}
+sum(1, 2, 3)
+
+count := 0
+inc := func() { count++ } // closure:
+inc(); inc()              // count == 2</code></pre></div>
+        <p class="use"><b>Closures capture variables,</b> not copies — that's what made middleware and <code>defer wg.Done()</code> patterns work.</p>
+      </article>
+
+      <article class="card" data-kw="method receiver struct attach function self this">
+        <h3>Methods — functions with a receiver</h3>
+        <div class="codebox"><pre><code>type Note struct {
+	ID   int
+	Text string
+}
+
+// (n Note) = the receiver ("this")
+func (n Note) Loud() string {
+	return strings.ToUpper(n.Text)
+}
+
+// pointer receiver: can modify
+func (n *Note) Rename(t string) {
+	n.Text = t
+}</code></pre></div>
+        <p class="use"><b>Call them the same way:</b> <code>note.Rename("hi")</code> — Go takes the address for you.</p>
+      </article>
+
+      <article class="card" data-kw="pointer address dereference nil star ampersand reference">
+        <h3>Pointers — just two symbols</h3>
+        <div class="codebox"><pre><code>n := Note{ID: 1}
+p := &n         // & = "address of"
+p.Text = "hi"   // auto-dereferences 🎉
+fmt.Println(*p) // * = "value there"
+
+var q *Note   // nil until assigned
+if q != nil { // check before use!
+	fmt.Println(q.Text)
+}</code></pre></div>
+        <p class="use"><b>No pointer arithmetic,</b> no <code>-&gt;</code>. Just: <code>&amp;</code> takes an address, <code>*</code> follows one.</p>
+      </article>
+
+      <div class="decide" data-kw="pointer value receiver which choose method decide">
+        <h3>Pointer receiver or value receiver?</h3>
+        <div class="drow"><span>The method changes the struct</span><span class="arrow">→</span><span class="pick">pointer <code>(n *Note)</code><small>changes stick</small></span></div>
+        <div class="drow"><span>The struct is big (copying is wasteful)</span><span class="arrow">→</span><span class="pick">pointer <code>(n *Note)</code><small>passes 8 bytes, not the whole thing</small></span></div>
+        <div class="drow"><span>Small and read-only</span><span class="arrow">→</span><span class="pick">value <code>(n Note)</code><small>like time.Time does</small></span></div>
+        <div class="drow"><span>Honestly unsure</span><span class="arrow">→</span><span class="pick">pointer — and be consistent<small>don't mix receiver kinds on one type</small></span></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ================= STRUCTS ================= -->
+  <section class="section" id="structs" style="--tint:var(--c-struct)">
+    <div class="sec-head"><h2>Structs &amp; interfaces</h2><span class="whisper">your own types, and Go's quiet superpower</span></div>
+    <div class="grid">
+
+      <article class="card" data-kw="struct define literal fields tags json new type">
+        <h3>Structs — define &amp; create</h3>
+        <div class="codebox"><pre><code>type Note struct {
+	ID   int    `json:"id"`
+	Text string `json:"text"`
+}
+
+n := Note{ID: 1, Text: "hi"}
+n.Text = "hello"
+
+// the constructor convention:
+func NewNote(text string) *Note {
+	return &Note{Text: text}
+}</code></pre></div>
+        <p class="use"><b>Backtick tags</b> tell encoders what to call fields: capital <code>Text</code> in Go, lowercase <code>"text"</code> in JSON.</p>
+      </article>
+
+      <article class="card" data-kw="embedding composition inherit promote reuse anonymous field">
+        <h3>Embedding — composition, not inheritance</h3>
+        <div class="codebox"><pre><code>type Timestamps struct {
+	Created, Updated time.Time
+}
+
+type Note struct {
+	Timestamps // ← embedded
+	Text string
+}
+
+n := Note{}
+n.Created = time.Now() // promoted!</code></pre></div>
+        <p class="use"><b>Go has no inheritance.</b> Embed a type to borrow its fields and methods; that covers most "extends" cravings.</p>
+      </article>
+
+      <article class="card" data-kw="interface implements satisfy implicit polymorphism duck typing">
+        <h3>Interfaces — satisfied automatically</h3>
+        <div class="codebox"><pre><code>type Storer interface {
+	Save(n Note) error
+}
+
+// No "implements" keyword anywhere:
+type FileStore struct{}
+
+func (f FileStore) Save(n Note) error {
+	return nil // right method ⇒ Storer ✓
+}</code></pre></div>
+        <p class="use"><b>Anything</b> with the right method set satisfies the interface — the type never mentions it. That's why swapping a real store for a fake in tests is free.</p>
+      </article>
+
+      <div class="decide" data-kw="interface when abstraction decide fake test mock accept return structs">
+        <h3>Do I need an interface?</h3>
+        <div class="drow"><span>Only one implementation exists</span><span class="arrow">→</span><span class="pick">no — use the concrete type<small>add the interface the day a second one appears</small></span></div>
+        <div class="drow"><span>Tests need a fake (DB, API client, clock)</span><span class="arrow">→</span><span class="pick">yes — a small one, defined where it's used<small>1–3 methods is a healthy size</small></span></div>
+        <div class="drow"><span>Reading / writing / printing anything</span><span class="arrow">→</span><span class="pick">stdlib already has it<small>io.Reader, io.Writer, fmt.Stringer</small></span></div>
+        <div class="drow"><span>Designing a package's API</span><span class="arrow">→</span><span class="pick">accept interfaces, return structs<small>flexible inputs, concrete outputs</small></span></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ================= ERRORS ================= -->
+  <section class="section" id="errors" style="--tint:var(--c-err)">
+    <div class="sec-head"><h2>Errors</h2><span class="whisper">no exceptions — errors are values you look at</span></div>
+    <div class="grid">
+
+      <article class="card" data-kw="error check err nil return early handle">
+        <h3>The rhythm: check, return early</h3>
+        <div class="codebox"><pre><code>n, err := store.Get(ctx, id)
+if err != nil {
+	return err // handle or pass it up
+}
+use(n) // happy path stays un-indented</code></pre></div>
+        <p class="use"><b>Yes, you type this a lot.</b> That's by design — every failure path is visible right where it happens.</p>
+      </article>
+
+      <article class="card" data-kw="wrap errorf %w unwrap context chain is">
+        <h3>Wrap with %w — add breadcrumbs</h3>
+        <div class="codebox"><pre><code>if err != nil {
+	return fmt.Errorf(
+		"saving note %d: %w", id, err)
+}
+
+// errors read like a story:
+// "saving note 7: connection refused"</code></pre></div>
+        <p class="use"><b><code>%w</code> not <code>%v</code>:</b> <code>%w</code> keeps the original error inside so <code>errors.Is</code> still works on it.</p>
+      </article>
+
+      <article class="card" data-kw="sentinel errors.Is errors.As compare custom notfound">
+        <h3>Sentinels + errors.Is / errors.As</h3>
+        <div class="codebox"><pre><code>var ErrNotFound = errors.New("not found")
+
+// deep in the store:
+return Note{}, ErrNotFound
+
+// in the handler — even if wrapped:
+if errors.Is(err, ErrNotFound) {
+	http.Error(w, "not found", 404)
+}
+
+var pathErr *os.PathError
+if errors.As(err, &pathErr) { } // by TYPE</code></pre></div>
+        <p class="use"><b><code>Is</code> = "is it this value?"</b> · <b><code>As</code> = "is it this type?"</b> Both see through <code>%w</code> wrapping. Never compare with <code>==</code>.</p>
+      </article>
+
+      <div class="decide" data-kw="panic error when recover crash decide">
+        <h3>error or panic?</h3>
+        <div class="drow"><span>Bad input, missing row, network down</span><span class="arrow">→</span><span class="pick">error<small>expected failures are normal life</small></span></div>
+        <div class="drow"><span>Programmer bug — "this can't happen"</span><span class="arrow">→</span><span class="pick">panic<small>index out of range does this for you</small></span></div>
+        <div class="drow"><span>Writing library / handler code</span><span class="arrow">→</span><span class="pick">basically never panic<small>return errors, let the caller decide</small></span></div>
+        <div class="drow"><span>Unsure</span><span class="arrow">→</span><span class="pick">error<small>panics are for the impossible, not the inconvenient</small></span></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ================= CONCURRENCY ================= -->
+  <section class="section" id="concurrency" style="--tint:var(--c-conc)">
+    <div class="sec-head"><h2>Goroutines &amp; channels</h2><span class="whisper">Go's superpower — used less often than you'd think</span></div>
+    <div class="grid">
+
+      <div class="decide" data-kw="goroutine when concurrency decide need http handler fanout background">
+        <h3>Wait — do I even need a goroutine?</h3>
+        <div class="drow"><span>HTTP handler doing one DB query</span><span class="arrow">→</span><span class="pick">NO<small>net/http already runs every request in its own goroutine</small></span></div>
+        <div class="drow"><span>Call 3 APIs and combine the answers</span><span class="arrow">→</span><span class="pick">YES — fan out<small>total time = slowest call, not the sum</small></span></div>
+        <div class="drow"><span>Wait for a result OR a timeout/shutdown</span><span class="arrow">→</span><span class="pick">YES — goroutine + select<small>one function can't block on two things</small></span></div>
+        <div class="drow"><span>Do work after replying (email, cache warm)</span><span class="arrow">→</span><span class="pick">YES — carefully<small>needs its own context and error handling</small></span></div>
+        <div class="drow"><span>"This loop feels slow" (no measurement)</span><span class="arrow">→</span><span class="pick">NO — measure first<small>speculative concurrency buys bugs, not speed</small></span></div>
+      </div>
+
+      <article class="card" data-kw="goroutine go keyword spawn concurrent async launch">
+        <h3>Starting a goroutine</h3>
+        <div class="codebox"><pre><code>go doWork()      // returns immediately
+
+go func() {      // anonymous is common
+	fmt.Println("running concurrently!")
+}()
+
+// ⚠ main() exiting kills ALL goroutines.
+// You must wait for them ↓</code></pre></div>
+        <p class="use"><b>A goroutine is cheap</b> (a few KB) — but fire-and-forget without a way to wait or fail is a bug factory.</p>
+      </article>
+
+      <article class="card" data-kw="waitgroup wg add done wait sync wait for finish">
+        <h3>WaitGroup — wait for N to finish</h3>
+        <div class="codebox"><pre><code>var wg sync.WaitGroup
+
+for _, url := range urls {
+	wg.Add(1) // before starting!
+	go func() {
+		defer wg.Done() // always runs
+		fetch(url)
+	}()
+}
+wg.Wait() // waits for every Done</code></pre></div>
+        <p class="use"><b>Pattern:</b> <code>Add(1)</code> outside, <code>defer Done()</code> first line inside, <code>Wait()</code> after the loop.</p>
+      </article>
+
+      <article class="card" data-kw="channel chan send receive close range communicate pipe">
+        <h3>Channels — typed pipes</h3>
+        <div class="codebox"><pre><code>ch := make(chan string) // unbuffered
+
+go func() {
+	ch <- "hi" // send: waits for reader
+}()
+msg := <-ch    // receive: waits for send
+
+close(ch) // sender says "no more"
+for v := range ch { } // until closed</code></pre></div>
+        <p class="use"><b>Arrow points the way data flows:</b> <code>ch &lt;- x</code> puts in, <code>x := &lt;-ch</code> takes out. Only the <em>sender</em> closes.</p>
+      </article>
+
+      <article class="card" data-kw="buffered unbuffered channel capacity block mailbox handshake">
+        <h3>Buffered vs unbuffered</h3>
+        <div class="codebox"><pre><code>h := make(chan int) // handshake:
+                    // send waits for recv
+
+m := make(chan int, 3) // mailbox, 3 slots
+m <- 1                 // no block...
+m <- 2                 // ...until full</code></pre></div>
+        <p class="use"><b>Unbuffered</b> = synchronize two goroutines. <b>Buffered</b> = let a known number of results pile up (like one slot per worker).</p>
+      </article>
+
+      <article class="card" data-kw="select timeout multiple channels first ready wait race">
+        <h3>select — whichever is ready first</h3>
+        <div class="codebox"><pre><code>select {
+case msg := <-ch1:
+	fmt.Println("ch1:", msg)
+case msg := <-ch2:
+	fmt.Println("ch2:", msg)
+case <-time.After(2 * time.Second):
+	fmt.Println("timed out ⏰")
+}</code></pre></div>
+        <p class="use"><b>This is how you wait on two things at once</b> — results, timeouts, shutdown signals. It's the heart of our server's graceful shutdown.</p>
+      </article>
+
+      <article class="card" data-kw="mutex lock unlock shared state map counter race protect sync">
+        <h3>Mutex — guard shared state</h3>
+        <div class="codebox"><pre><code>var (
+	mu     sync.Mutex
+	visits = map[string]int{}
+)
+
+func hit(page string) {
+	mu.Lock()
+	defer mu.Unlock()
+	visits[page]++ // one at a time
+}</code></pre></div>
+        <p class="use"><b>Two goroutines + one map = crash</b> without this. Run <code>go run -race .</code> to catch races in tests.</p>
+      </article>
+
+      <article class="card" data-kw="fanout fan out parallel workers example results collect real">
+        <h3>Real example — fan out, collect</h3>
+        <div class="codebox"><pre><code>urls := []string{"a.com","b.com","c.com"}
+results := make(chan string, len(urls))
+
+for _, u := range urls {
+	go func() {
+		results <- check(u)
+	}()
+}
+for range urls {
+	fmt.Println(<-results) // finish order
+}</code></pre></div>
+        <p class="use"><b>Payoff:</b> 3 calls × 1s each = ~1 second total, not 3. The buffered channel means no goroutine waits to deliver.</p>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- ================= WEB ================= -->
+  <section class="section" id="web" style="--tint:var(--c-web)">
+    <div class="sec-head"><h2>Web &amp; JSON</h2><span class="whisper">the four snippets behind our whole CRUD API</span></div>
+    <div class="grid">
+
+      <article class="card" data-kw="http server mux handler route pathvalue listen serve endpoint api rest">
+        <h3>A server in 8 lines</h3>
+        <div class="codebox"><pre><code>mux := http.NewServeMux()
+
+mux.HandleFunc("GET /notes/{id}", getNote)
+
+func getNote(w http.ResponseWriter,
+	r *http.Request) {
+	id := r.PathValue("id") // from {id}
+	fmt.Fprintf(w, "note %s", id)
+}
+
+http.ListenAndServe(":8080", mux)</code></pre></div>
+        <p class="use"><b>Since Go 1.22</b> the pattern handles the method AND path params — no router library needed for most APIs.</p>
+      </article>
+
+      <article class="card" data-kw="json encode decode marshal unmarshal body struct tags parse request response">
+        <h3>JSON in, JSON out</h3>
+        <div class="codebox"><pre><code>type Note struct {
+	ID   int    `json:"id"`
+	Text string `json:"text"`
+}
+
+// request body → struct
+var n Note
+json.NewDecoder(r.Body).Decode(&n)
+
+// struct → response body
+w.Header().Set("Content-Type",
+	"application/json")
+json.NewEncoder(w).Encode(n)</code></pre></div>
+        <p class="use"><b>Fields must be Capitalized</b> or the encoder can't see them — the tag gives the lowercase JSON name.</p>
+      </article>
+
+      <article class="card" data-kw="status code 200 201 204 400 404 500 writeheader http.Error respond">
+        <h3>Status codes — quick picks</h3>
+        <div class="codebox"><pre><code>w.WriteHeader(http.StatusCreated)  // 201
+
+http.Error(w, "not found",
+	http.StatusNotFound)           // 404 + text
+
+// 200 got it    201 created
+// 204 deleted   400 bad input
+// 404 missing   500 we broke — log it</code></pre></div>
+        <p class="use"><b>Order matters:</b> set headers, then <code>WriteHeader</code>, then the body. Writing the body first locks in a 200.</p>
+      </article>
+
+      <article class="card" data-kw="context ctx cancel timeout request deadline propagate">
+        <h3>context — the cancel signal</h3>
+        <div class="codebox"><pre><code>// in a handler: tied to THIS request
+ctx := r.Context()
+store.Get(ctx, id) // dies with client
+
+// give anything a deadline:
+ctx, cancel := context.WithTimeout(
+	ctx, 5*time.Second)
+defer cancel()</code></pre></div>
+        <p class="use"><b>Rule:</b> <code>ctx</code> is always the first parameter, and you pass it down — never store it in a struct field.</p>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- ================= GOTCHAS ================= -->
+  <section class="section" id="gotchas" style="--tint:var(--c-gotcha)">
+    <div class="sec-head"><h2>Gotcha wall</h2><span class="whisper">the ones that bite every new gopher exactly once</span></div>
+    <div class="grid">
+
+      <article class="card" data-kw="nil map panic assign write make crash">
+        <h3>💥 Writing to a nil map panics</h3>
+        <div class="codebox"><pre><code>var m map[string]int
+m["a"] = 1 // PANIC: nil map
+
+m = make(map[string]int) // make it first
+m["a"] = 1 // ✓</code></pre></div>
+        <p class="use"><b>Reading</b> a nil map is fine (zero values). <b>Writing</b> is the crash. <code>make</code> or use a literal <code>{}</code>.</p>
+      </article>
+
+      <article class="card" data-kw="nil empty slice json null array difference">
+        <h3>nil slice vs empty slice in JSON</h3>
+        <div class="codebox"><pre><code>var a []int          // nil
+b := []int{}         // empty
+
+json: a → null   😬
+json: b → []     ✓ what APIs want</code></pre></div>
+        <p class="use"><b>Both work with append and len.</b> Only JSON cares — return <code>[]Note{}</code> from list endpoints, not a nil slice.</p>
+      </article>
+
+      <article class="card" data-kw="range copy value modify element index stick">
+        <h3>range hands you a copy</h3>
+        <div class="codebox"><pre><code>for _, n := range notes {
+	n.Text = "edited" // edits the COPY 😬
+}
+
+for i := range notes {
+	notes[i].Text = "edited" // sticks ✓
+}</code></pre></div>
+        <p class="use"><b>Mutating in a loop?</b> Go through the index (or use a slice of pointers).</p>
+      </article>
+
+      <article class="card" data-kw="defer arguments evaluate now later snapshot">
+        <h3>defer snapshots its arguments</h3>
+        <div class="codebox"><pre><code>x := 1
+defer fmt.Println("x was", x) // grabs 1
+x = 99
+// prints: "x was 1"
+
+defer func() { fmt.Println(x) }()
+// closure reads x at run time → 99</code></pre></div>
+        <p class="use"><b>Args evaluate at the <code>defer</code> line;</b> the call runs at return. Want the final value? Wrap it in a closure.</p>
+      </article>
+
+      <article class="card" data-kw="capital exported public private lowercase visibility package">
+        <h3>Capital letter = public</h3>
+        <div class="codebox"><pre><code>type Note struct {
+	Text string // exported (public)
+	slug string // private to its package
+}
+
+// Same for funcs, types, methods:
+// Save() is public, save() is private.</code></pre></div>
+        <p class="use"><b>There's no <code>public</code>/<code>private</code> keyword</b> — the first letter IS the access modifier. JSON encoding only sees Capitals too.</p>
+      </article>
+
+      <article class="card" data-kw="unused variable import compile error underscore blank">
+        <h3>Unused = compile error</h3>
+        <div class="codebox"><pre><code>x := compute() // ✗ declared, not used
+
+_ = compute()  // deliberately discard ✓
+_ "github.com/go-sql-driver/mysql"
+// blank import: run its init only</code></pre></div>
+        <p class="use"><b>Not a warning — an error.</b> Annoying for 2 days, then you'll love the always-clean codebase.</p>
+      </article>
+
+      <article class="card" data-kw="string bytes runes len unicode utf8 iterate character">
+        <h3>Strings are bytes, range gives runes</h3>
+        <div class="codebox"><pre><code>s := "héllo"
+len(s)                    // 6 — bytes!
+utf8.RuneCountInString(s) // 5 chars
+
+for i, r := range s { }
+// r is a rune; i can jump by >1</code></pre></div>
+        <p class="use"><b>Slicing a string cuts bytes,</b> which can split a character in half. For real text work, convert to <code>[]rune</code>.</p>
+      </article>
+
+      <article class="card" data-kw="append share memory reallocate alias surprise backing array">
+        <h3>append sometimes shares memory</h3>
+        <div class="codebox"><pre><code>a := []int{1, 2, 3}
+b := append(a[:2], 99)
+// b = [1 2 99] — and a too! 😱
+// (append reused a's backing array)</code></pre></div>
+        <p class="use"><b>Appending to a sub-slice can overwrite the original.</b> When branching off a slice, <code>slices.Clone</code> it first.</p>
+      </article>
+
+    </div>
+  </section>
+
+  <footer>
+    <p class="paw">Made for the team 🐹 — pin this tab.</p>
+    <p>Press <b>/</b> to search · every snippet has a copy button · goes well with <code>go doc</code> and <a href="https://go.dev/tour/" style="color:var(--c-conc)">go.dev/tour</a></p>
+  </footer>
+
+</main>
+
+<script>
+/* ---------- tiny Go syntax highlighter ---------- */
+(function () {
+  const KW = /\b(package|import|func|return|var|const|type|struct|interface|map|chan|go|defer|select|switch|case|default|if|else|for|range|break|continue|fallthrough|goto)\b/g;
+  const TY = /\b(string|int|int64|float64|bool|byte|rune|error|any|nil|true|false|iota|make|new|len|cap|append|copy|delete|close|panic|recover)\b/g;
+  document.querySelectorAll('pre code').forEach(el => {
+    let src = el.textContent;
+    src = src.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // strings & comments first (so keywords inside them stay plain)
+    const parts = src.split(/((?:\/\/[^\n]*)|(?:"(?:[^"\\\n]|\\.)*")|(?:`[^`]*`))/);
+    el.innerHTML = parts.map((p, i) => {
+      if (i % 2) { // matched a string or comment
+        return p.startsWith('//') ? '<span class="c">' + p + '</span>'
+                                  : '<span class="s">' + p + '</span>';
+      }
+      return p.replace(KW, '<span class="k">$1</span>')
+              .replace(TY, '<span class="t">$1</span>')
+              .replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="n">$1</span>');
+    }).join('');
+  });
+})();
+
+/* ---------- copy buttons ---------- */
+document.querySelectorAll('.codebox').forEach(box => {
+  const btn = document.createElement('button');
+  btn.className = 'copy';
+  btn.textContent = 'copy';
+  btn.setAttribute('aria-label', 'Copy snippet');
+  btn.addEventListener('click', () => {
+    navigator.clipboard.writeText(box.querySelector('pre').textContent).then(() => {
+      btn.textContent = 'copied ✓';
+      btn.classList.add('done');
+      setTimeout(() => { btn.textContent = 'copy'; btn.classList.remove('done'); }, 1400);
+    });
+  });
+  box.appendChild(btn);
+});
+
+/* ---------- search / filter ---------- */
+const q = document.getElementById('q');
+const hits = document.getElementById('hits');
+const cards = [...document.querySelectorAll('.card, .decide')];
+const sections = [...document.querySelectorAll('.section')];
+
+function filter() {
+  const term = q.value.trim().toLowerCase();
+  let shown = 0;
+  cards.forEach(c => {
+    const hay = (c.dataset.kw || '') + ' ' + c.textContent.toLowerCase();
+    const ok = !term || hay.includes(term);
+    c.classList.toggle('hidden', !ok);
+    if (ok) shown++;
+  });
+  sections.forEach(s => {
+    const any = [...s.querySelectorAll('.card, .decide')].some(c => !c.classList.contains('hidden'));
+    s.classList.toggle('hidden', !any);
+  });
+  hits.textContent = term ? shown + ' card' + (shown === 1 ? '' : 's') : '';
+}
+q.addEventListener('input', filter);
+q.addEventListener('keydown', e => { if (e.key === 'Escape') { q.value = ''; filter(); q.blur(); } });
+document.addEventListener('keydown', e => {
+  if (e.key === '/' && document.activeElement !== q) { e.preventDefault(); q.focus(); }
+});
+
+/* ---------- gopher eyes follow the cursor ---------- */
+if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  const pupils = document.querySelectorAll('.pupil');
+  const gopher = document.querySelector('.gopher');
+  document.addEventListener('mousemove', e => {
+    const r = gopher.getBoundingClientRect();
+    if (r.bottom < -100 || r.top > innerHeight) return; // off-screen: skip
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const dx = Math.max(-1, Math.min(1, (e.clientX - cx) / 300));
+    const dy = Math.max(-1, Math.min(1, (e.clientY - cy) / 300));
+    pupils.forEach(p => p.setAttribute('transform', `translate(${dx * 4} ${dy * 3.5})`));
+  }, { passive: true });
+}
+
+/* ---------- active nav chip while scrolling ---------- */
+const chips = [...document.querySelectorAll('.chip')];
+const byId = Object.fromEntries(chips.map(c => [c.getAttribute('href').slice(1), c]));
+const spy = new IntersectionObserver(entries => {
+  entries.forEach(en => {
+    if (en.isIntersecting) {
+      chips.forEach(c => c.classList.remove('active'));
+      (byId[en.target.id] || {}).classList?.add('active');
+    }
+  });
+}, { rootMargin: '-20% 0px -70% 0px' });
+sections.forEach(s => spy.observe(s));
+</script>
+</body>
+</html>
