@@ -69,6 +69,7 @@ body{
 .chip:hover{transform:translateY(-1px)}
 .chip .dot{width:9px;height:9px;border-radius:50%;background:var(--dot)}
 .chip.active{border-color:var(--dot);box-shadow:0 0 0 3px color-mix(in srgb,var(--dot) 18%, transparent)}
+.chip.swap{background:var(--navy);color:#fff;border-color:var(--navy)}
 .chip:focus-visible,a:focus-visible,button:focus-visible,input:focus-visible{
   outline:3px solid var(--c-conc);outline-offset:2px;
 }
@@ -266,6 +267,7 @@ footer .paw{font-family:Fredoka,sans-serif;font-weight:600;color:var(--navy)}
 <nav class="topbar" aria-label="Sections">
   <div class="topbar-inner">
     <a class="brand" href="#top">go<b>cheat</b>.sheet</a>
+    <a class="chip swap" href="advanced.html">Advanced →</a>
     <a class="chip" style="--dot:var(--c-basics)" href="#basics"><span class="dot"></span>Basics</a>
     <a class="chip" style="--dot:var(--c-flow)" href="#flow"><span class="dot"></span>Flow</a>
     <a class="chip" style="--dot:var(--c-coll)" href="#collections"><span class="dot"></span>Slices &amp; Maps</a>
@@ -990,7 +992,7 @@ b := append(a[:2], 99)
 
   <footer>
     <p class="paw">Made for the team 🐹 — pin this tab.</p>
-    <p>Press <b>/</b> to search · every snippet has a copy button · goes well with <code>go doc</code> and <a href="https://go.dev/tour/" style="color:var(--c-conc)">go.dev/tour</a></p>
+    <p>Press <b>/</b> to search · every snippet has a copy button · ready for more? <a href="advanced.html" style="color:var(--c-conc)"><b>the advanced sheet →</b></a></p>
   </footer>
 
 </main>
