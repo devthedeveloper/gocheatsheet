@@ -1,0 +1,2 @@
+fast finished
+⏰ timeout — not waiting 5s for slow

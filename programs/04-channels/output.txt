@@ -1,0 +1,7 @@
+sending 🍎
+sending 🍌
+got     🍎
+sending 🍇
+got     🍌
+got     🍇
+channel drained, bye

@@ -1,0 +1,5 @@
+worker: tick 1
+worker: tick 2
+worker: tick 3
+worker: stopping — context deadline exceeded
+main: clean exit

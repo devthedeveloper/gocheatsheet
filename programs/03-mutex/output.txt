@@ -1,0 +1,3 @@
+expected:       100000
+without mutex:  33861 😱
+with mutex:     100000 ✓

@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Go Runnable Sheet — tiny programs, big lightbulbs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#eef6f2;
+  --ink:#0e2f22;
+  --ink-soft:#4b6b5c;
+  --card:#ffffff;
+  --line:#d5e6dd;
+  --navy:#0b3d2e;
+
+  --c-conc:#00add8;
+  --c-back:#14805f;
+
+  --radius:18px;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;scroll-padding-top:86px}
+@media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto} *{transition:none!important;animation:none!important} }
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:'Atkinson Hyperlegible',system-ui,sans-serif;
+  font-size:16px;line-height:1.55;
+}
+::selection{background:#bdeedd}
+
+/* ---------------- top nav ---------------- */
+.topbar{
+  position:sticky;top:0;z-index:50;
+  background:rgba(238,246,242,.88);backdrop-filter:blur(8px);
+  border-bottom:1px solid var(--line);
+}
+.topbar-inner{
+  max-width:1240px;margin:0 auto;padding:10px 20px;
+  display:flex;align-items:center;gap:10px;overflow-x:auto;
+  scrollbar-width:none;
+}
+.topbar-inner::-webkit-scrollbar{display:none}
+.brand{
+  font-family:Fredoka,sans-serif;font-weight:700;font-size:17px;
+  white-space:nowrap;margin-right:6px;color:var(--navy);
+  text-decoration:none;flex:0 0 auto;
+}
+.brand b{color:var(--c-back)}
+.chip{
+  flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;
+  font-family:Fredoka,sans-serif;font-weight:600;font-size:13.5px;
+  color:var(--ink);text-decoration:none;
+  padding:6px 13px;border-radius:99px;background:#fff;
+  border:1.5px solid var(--line);
+  transition:transform .12s ease, border-color .12s ease;
+}
+.chip:hover{transform:translateY(-1px)}
+.chip .dot{width:9px;height:9px;border-radius:50%;background:var(--dot)}
+.chip.active{border-color:var(--dot);box-shadow:0 0 0 3px color-mix(in srgb,var(--dot) 18%, transparent)}
+.chip.swap{background:var(--navy);color:#fff;border-color:var(--navy)}
+.chip:focus-visible,a:focus-visible,button:focus-visible,input:focus-visible{
+  outline:3px solid var(--c-back);outline-offset:2px;
+}
+
+/* ---------------- hero ---------------- */
+.wrap{max-width:1240px;margin:0 auto;padding:0 20px}
+.hero{position:relative;margin-top:64px}
+.hero-card{
+  position:relative;
+  background:linear-gradient(160deg,#0b3d2e 0%,#0f5c42 60%,#14805f 100%);
+  border-radius:28px;
+  padding:56px 48px 44px;
+  color:#e9f9f1;
+  overflow:visible;
+  box-shadow:0 18px 40px -18px rgba(11,61,46,.5);
+}
+.gopher{
+  position:absolute;top:-58px;right:6%;width:172px;height:auto;
+  pointer-events:none;
+}
+.eyebrow{
+  display:inline-flex;gap:8px;align-items:center;
+  font-family:Fredoka,sans-serif;font-weight:600;font-size:12.5px;
+  letter-spacing:.16em;text-transform:uppercase;color:#9fe5c8;
+}
+.eyebrow::before{content:"";width:22px;height:3px;border-radius:2px;background:#39d98a}
+.hero h1{
+  font-family:Fredoka,sans-serif;font-weight:700;
+  font-size:clamp(30px,4.6vw,52px);line-height:1.08;
+  margin:14px 0 12px;max-width:16ch;
+}
+.hero h1 .hl{position:relative;white-space:nowrap}
+.hero h1 .hl::after{
+  content:"";position:absolute;left:-2%;right:-2%;bottom:6%;height:.32em;
+  background:var(--hl);border-radius:4px;z-index:-1;opacity:.9;
+}
+.hero h1 .hl.a{--hl:#39d98a77} .hero h1 .hl.b{--hl:#00add877}
+.hero p.sub{max-width:54ch;color:#c4ecd9;font-size:17px}
+.hero p.sub a{color:#9ee7f8}
+.searchrow{margin-top:26px;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.search{
+  flex:1 1 320px;max-width:520px;display:flex;align-items:center;gap:10px;
+  background:#fff;border-radius:99px;padding:12px 20px;
+  border:2px solid transparent;
+}
+.search:focus-within{border-color:var(--c-back)}
+.search svg{flex:0 0 auto}
+.search input{
+  border:0;outline:0;flex:1;font:inherit;font-size:16px;color:var(--ink);
+  background:transparent;min-width:0;
+}
+.search kbd{
+  font-family:var(--mono);font-size:12px;color:var(--ink-soft);
+  border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;padding:1px 7px;
+}
+.hits{font-family:Fredoka,sans-serif;font-weight:600;font-size:14px;color:#9fe5c8;min-width:9ch}
+
+/* ---------------- sections ---------------- */
+.section{margin-top:64px}
+.sec-head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+.sec-head h2{
+  font-family:Fredoka,sans-serif;font-weight:700;font-size:28px;
+  display:flex;align-items:center;gap:12px;
+}
+.sec-head h2::before{
+  content:"";width:16px;height:16px;border-radius:5px;background:var(--tint);
+  transform:rotate(45deg);flex:0 0 auto;
+}
+.sec-head .whisper{color:var(--ink-soft);font-size:15px}
+.grid{
+  margin-top:18px;
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(480px,1fr));gap:18px;
+}
+@media (max-width:560px){ .grid{grid-template-columns:1fr} }
+.card{
+  background:var(--card);
+  border:1.5px solid var(--line);
+  border-top:5px solid var(--tint);
+  border-radius:var(--radius);
+  padding:18px 20px 16px;
+  display:flex;flex-direction:column;gap:10px;
+  transition:transform .15s ease, box-shadow .15s ease;
+}
+.card:hover{transform:translateY(-3px);box-shadow:0 14px 28px -16px rgba(11,61,46,.35)}
+.card h3{
+  font-family:Fredoka,sans-serif;font-weight:600;font-size:17.5px;
+  display:flex;align-items:center;gap:8px;
+}
+.card h3 .num{color:var(--tint);font-weight:700}
+.card h3 .tag{
+  margin-left:auto;font-size:11px;font-weight:600;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--tint);
+  background:color-mix(in srgb,var(--tint) 12%, white);
+  border-radius:99px;padding:3px 10px;
+}
+.card .what{font-size:14.5px;color:var(--ink-soft)}
+.card .use{
+  font-size:13.5px;color:var(--ink-soft);
+  border-top:1px dashed var(--line);padding-top:9px;margin-top:auto;
+}
+.card .use b{color:var(--ink)}
+
+/* code */
+.codebox{position:relative}
+pre{
+  background:#f0f7f3;
+  border:1px solid #dcece3;
+  border-radius:12px;
+  padding:13px 15px;
+  overflow-x:auto;
+  font-family:var(--mono);font-size:12.4px;line-height:1.6;
+  tab-size:4;font-variant-ligatures:none;
+}
+code{font-family:var(--mono);font-variant-ligatures:none}
+.k{color:#c2186a;font-weight:700}
+.t{color:#0b6bcb}
+.s{color:#188a4c}
+.c{color:#7c948a;font-style:italic}
+.n{color:#b45309}
+.copy{
+  position:absolute;top:8px;right:8px;
+  font-family:Fredoka,sans-serif;font-weight:600;font-size:11.5px;
+  border:1px solid var(--line);border-radius:8px;background:#fff;
+  color:var(--ink-soft);padding:3px 9px;cursor:pointer;opacity:0;
+  transition:opacity .12s ease;
+}
+.card:hover .copy,.copy:focus-visible{opacity:1}
+.copy.done{color:#188a4c;border-color:#188a4c}
+p.note code, .use code, .what code{
+  background:#eef6f2;border:1px solid var(--line);border-radius:5px;
+  padding:0 5px;font-size:.9em;color:#0b6bcb;
+}
+
+/* terminal output */
+.term{border-radius:12px;overflow:hidden;border:1px solid #0b3d2e}
+.term .tbar{
+  display:flex;align-items:center;gap:8px;
+  background:#0b3d2e;color:#9fe5c8;
+  font-family:var(--mono);font-size:11.5px;
+  padding:7px 12px;
+}
+.term .tbar::before{
+  content:"";width:9px;height:9px;border-radius:50%;
+  background:#39d98a;box-shadow:16px 0 0 #f5a623, 32px 0 0 #ef5563;
+  margin-right:26px;flex:0 0 auto;
+}
+.term pre{
+  background:#0e2f22;border:0;border-radius:0;
+  color:#d7f5e6;font-size:12.2px;
+}
+.term pre .prompt{color:#39d98a;font-weight:700}
+.term pre .dim{color:#7fae98;font-style:italic}
+
+/* clone strip */
+.clone{
+  grid-column:1/-1;
+  background:color-mix(in srgb,var(--tint) 7%, white);
+  border:1.5px solid color-mix(in srgb,var(--tint) 35%, white);
+  border-radius:var(--radius);
+  padding:20px 22px;
+}
+.clone h3{
+  font-family:Fredoka,sans-serif;font-weight:700;font-size:19px;margin-bottom:10px;
+  display:flex;align-items:center;gap:10px;
+}
+.clone h3::before{content:"▶";display:grid;place-items:center;width:26px;height:26px;
+  border-radius:50%;background:var(--tint);color:#fff;font-size:12px;flex:0 0 auto}
+
+footer{
+  margin:80px 0 40px;text-align:center;color:var(--ink-soft);font-size:14px;
+}
+footer .paw{font-family:Fredoka,sans-serif;font-weight:600;color:var(--navy)}
+footer a{color:var(--c-back)}
+
+.hidden{display:none!important}
+
+@media (max-width:760px){
+  .hero-card{padding:44px 26px 34px}
+  .gopher{width:120px;top:-40px;right:5%}
+  .section{margin-top:48px}
+}
+@media print{
+  .topbar,.searchrow,.copy,.gopher{display:none!important}
+  .hero-card{box-shadow:none;color:#000;background:#fff;border:2px solid #000}
+  .hero p.sub{color:#333}
+  .card{break-inside:avoid;box-shadow:none}
+  body{background:#fff}
+}
+</style>
+</head>
+<body>
+
+<nav class="topbar" aria-label="Sections">
+  <div class="topbar-inner">
+    <a class="brand" href="#top">go<b>cheat</b>.sheet<sup>▶</sup></a>
+    <a class="chip swap" href="./">← Basics</a>
+    <a class="chip swap" href="advanced.html">← Advanced</a>
+    <a class="chip" style="--dot:var(--c-conc)" href="#concurrency"><span class="dot"></span>Concurrency lab</a>
+    <a class="chip" style="--dot:var(--c-back)" href="#backend"><span class="dot"></span>Backend lab</a>
+  </div>
+</nav>
+
+<main class="wrap" id="top">
+
+  <header class="hero">
+    <div class="hero-card">
+      <svg class="gopher" viewBox="0 0 200 112" aria-hidden="true">
+        <circle cx="45" cy="38" r="16" fill="#00add8" stroke="#0b2530" stroke-width="3"/>
+        <circle cx="155" cy="38" r="16" fill="#00add8" stroke="#0b2530" stroke-width="3"/>
+        <circle cx="45" cy="38" r="7" fill="#8fdcef"/>
+        <circle cx="155" cy="38" r="7" fill="#8fdcef"/>
+        <path d="M25 112 Q25 24 100 24 Q175 24 175 112 Z" fill="#00add8" stroke="#0b2530" stroke-width="3"/>
+        <!-- safety goggles: lab rules -->
+        <path d="M40 70 L160 70" stroke="#0b2530" stroke-width="5"/>
+        <rect x="48" y="56" width="46" height="30" rx="13" fill="#ffd166" opacity=".92" stroke="#0b2530" stroke-width="3"/>
+        <rect x="106" y="56" width="46" height="30" rx="13" fill="#ffd166" opacity=".92" stroke="#0b2530" stroke-width="3"/>
+        <circle cx="70" cy="72" r="6.5" fill="#0b2530"/>
+        <circle cx="130" cy="72" r="6.5" fill="#0b2530"/>
+        <ellipse cx="100" cy="94" rx="13" ry="9" fill="#f5d7b2" stroke="#0b2530" stroke-width="3"/>
+        <ellipse cx="100" cy="89" rx="5" ry="3.5" fill="#5b4632"/>
+        <rect x="94" y="98" width="12" height="11" rx="2.5" fill="#fff" stroke="#0b2530" stroke-width="2.5"/>
+        <rect x="28" y="101" width="27" height="12" rx="6" fill="#f5d7b2" stroke="#0b2530" stroke-width="3"/>
+        <rect x="145" y="101" width="27" height="12" rx="6" fill="#f5d7b2" stroke="#0b2530" stroke-width="3"/>
+      </svg>
+      <span class="eyebrow">Team cheat sheet · Runnable edition · Go 1.25</span>
+      <h1>Don't just read Go — <span class="hl a">run it</span> and <span class="hl b">break it</span></h1>
+      <p class="sub">Twelve complete programs, each small enough to read in a minute.
+      Every terminal output below is <em>real</em>, captured from an actual run —
+      including the data race losing 66,000 increments. Copy one, run it, then
+      change something and see what happens.</p>
+      <div class="searchrow">
+        <label class="search">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4b6b5c" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="q" type="search" placeholder="try “mutex”, “pool”, “mysql”, “shutdown”…" aria-label="Search the programs">
+          <kbd>/</kbd>
+        </label>
+        <span class="hits" id="hits"></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ================= CONCURRENCY LAB ================= -->
+  <section class="section" id="concurrency" style="--tint:var(--c-conc)">
+    <div class="sec-head"><h2>Concurrency lab</h2><span class="whisper">eight programs, in order — each builds on the one before</span></div>
+    <div class="grid">
+
+      <div class="clone" data-kw="clone repo run git setup install">
+        <h3>Run them yourself</h3>
+        <div class="codebox"><pre><code>git clone https://github.com/devthedeveloper/gocheatsheet
+cd gocheatsheet/programs
+go run ./01-goroutines     # each folder is one program
+go run -race ./03-mutex    # extra credit: watch Go catch the race</code></pre></div>
+      </div>
+
+      <article class="card" data-kw="goroutine go keyword concurrent interleave main dies exit">
+        <h3><span class="num">01</span> goroutines <span class="tag">start here</span></h3>
+        <p class="what">One keyword makes it concurrent. The catch: when <code>main</code> returns, everyone dies.</p>
+        <div class="codebox"><pre><code>package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func say(name string) {
+	for i := 1; i <= 3; i++ {
+		fmt.Println(name, i)
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func main() {
+	go say("A") // fires and returns instantly
+	go say("B")
+
+	say("main") // runs in the main goroutine,
+	//             keeping the program alive
+
+	// when main returns, ALL goroutines die.
+	// delete the say("main") line and watch
+	// A and B never get a chance to print.
+}</code></pre></div>
+        <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./01-goroutines
+main 1
+A 1
+B 1
+B 2
+A 2
+main 2
+main 3
+A 3
+B 3</pre></div>
+        <p class="use"><b>Notice:</b> the interleaving is different every run — the scheduler decides. Never depend on goroutine ordering.</p>
+      </article>
+
+      <article class="card" data-kw="waitgroup wg add done wait finish workers sync">
+        <h3><span class="num">02</span> wg.Wait() <span class="tag">sync</span></h3>
+        <p class="what">The fix for "main dies too early": count work in, count work out.</p>
+        <div class="codebox"><pre><code>package main
+
+import (
+	"fmt"
+	"sync"
+	"time"
+)
+
+func main() {
+	var wg sync.WaitGroup
+
+	for id := 1; id <= 3; id++ {
+		wg.Add(1) // +1 BEFORE starting
+		go func() {
+			defer wg.Done() // -1, always
+			wait := time.Duration(id) *
+				100 * time.Millisecond
+			time.Sleep(wait) // fake work
+			fmt.Printf("worker %d done (%v)\n",
+				id, wait)
+		}()
+	}
+
+	fmt.Println("waiting for 3 workers…")
+	wg.Wait() // blocks until counter hits 0
+	fmt.Println("all done ✓")
+}</code></pre></div>
+        <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./02-waitgroup
+waiting for 3 workers…
+worker 1 done (100ms)
+worker 2 done (200ms)
+worker 3 done (300ms)
+all done ✓</pre></div>
+        <p class="use"><b>Notice:</b> total time is 300ms (the slowest), not 600ms (the sum) — the workers ran simultaneously.</p>
+      </article>
+
+      <article class="card" data-kw="mutex race data race counter lock unlock broken lost updates">
+        <h3><span class="num">03</span> mutex vs the race <span class="tag">the big one</span></h3>
+        <p class="what">100 goroutines bump a counter 1,000 times each. Watch two-thirds of the increments vanish.</p>
+        <div class="codebox"><pre><code>package main
+
+import (
+	"fmt"
+	"sync"
+)
+
+func main() {
+	const workers, bumps = 100, 1000
+	var wg sync.WaitGroup
+
+	// BROKEN: a plain int, no lock
+	unsafe := 0
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range bumps {
+				unsafe++ // RACE: read+write
+			}
+		}()
+	}
+	wg.Wait()
+
+	// FIXED: same thing behind a mutex
+	var mu sync.Mutex
+	safe := 0
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range bumps {
+				mu.Lock()
+				safe++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+
+	fmt.Println("expected:      ", workers*bumps)
+	fmt.Println("without mutex: ", unsafe, "😱")
+	fmt.Println("with mutex:    ", safe, "✓")
+}</code></pre></div>
+        <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./03-mutex
+expected:       100000
+without mutex:  33861 😱
+with mutex:     100000 ✓
+<span class="dim"># x++ is really: read x, add 1, write x —
+# two goroutines interleave those steps
+# and one of the writes gets overwritten</span></pre></div>
+        <p class="use"><b>Extra credit:</b> <code>go run -race ./03-mutex</code> — Go pinpoints the racing line for you. Run <code>-race</code> in CI, always.</p>
+      </article>
+
+      <article class="card" data-kw="channel send receive close range blocks handshake">
+        <h3><span class="num">04</span> channels <span class="tag">pipes</span></h3>
+        <p class="what">A typed pipe between goroutines. Sends block until someone receives — watch the lockstep.</p>
+        <div class="codebox"><pre><code>package main
+
+import "fmt"
+
+func main() {
+	ch := make(chan string)
+
+	go func() { // the sender
+		menu := []string{"🍎", "🍌", "🍇"}
+		for _, fruit := range menu {
+			fmt.Println("sending", fruit)
+			ch <- fruit // blocks until received
+		}
+		close(ch) // sender says: no more
+	}()
+
+	for f := range ch { // receive until closed
+		fmt.Println("got    ", f)
+	}
+	fmt.Println("channel drained, bye")
+}</code></pre></div>
+        <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./04-channels
+sending 🍎
+sending 🍌
+got     🍎
+sending 🍇
+got     🍌
+got     🍇
+channel drained, bye</pre></div>
+        <p class="use"><b>Notice:</b> sends and receives alternate in lockstep — that's the unbuffered handshake. Try <code>make(chan string, 3)</code> and watch all three sends happen first.</p>
+      </article>
+
+      <article class="card" data-kw="select timeout first ready multiple channels time.After">
+        <h3><span class="num">05</span> select + timeout <span class="tag">wait smart</span></h3>
+        <p class="what">Wait on a fast worker, a slow worker, and a deadline — whichever speaks first wins.</p>
+        <div class="codebox"><pre><code>package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func worker(name string, d time.Duration) <-chan string {
+	ch := make(chan string, 1)
+	go func() {
+		time.Sleep(d)
+		ch <- name + " finished"
+	}()
+	return ch
+}
+
+func main() {
+	fast := worker("fast", 50*time.Millisecond)
+	slow := worker("slow", 5*time.Second)
+
+	for {
+		select {
+		case msg := <-fast:
+			fmt.Println(msg)
+		case msg := <-slow:
+			fmt.Println(msg) // never happens
+		case <-time.After(200 * time.Millisecond):
+			fmt.Println("⏰ timeout — not waiting 5s for slow")
+			return
+		}
+	}
+}</code></pre></div>
+        <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./05-select
+fast finished
+⏰ timeout — not waiting 5s for slow</pre></div>
+        <p class="use"><b>Notice:</b> the program exits in ~250ms even though a 5-second worker is still out there. This is how you put deadlines on anything.</p>
+      </article>
+
+      <article class="card" data-kw="worker pool jobs results queue throughput bounded">
+        <h3><span class="num">06</span> worker pool <span class="tag">throughput</span></h3>
+        <p class="what">Nine jobs, three workers, one queue. The math shows up in the wall clock.</p>
+        <div class="codebox"><pre><code>package main
+
+import (
+	"fmt"
+	"sync"
+	"time"
+)
+
+func main() {
+	start := time.Now()
+	jobs := make(chan int)
+	results := make(chan string)
+	var wg sync.WaitGroup
+
+	for w := 1; w <= 3; w++ { // exactly 3 workers
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range jobs { // until closed
+				time.Sleep(100 * time.Millisecond)
+				results <- fmt.Sprintf(
+					"worker %d finished job %d", w, j)
+			}
+		}()
+	}
+
+	go func() { // feed 9 jobs, then close
+		for j := 1; j <= 9; j++ {
+			jobs <- j
+		}
+		close(jobs)
+	}()
+
+	go func() { // close results when workers exit
+		wg.Wait()
+		close(results)
+	}()
+
+	for r := range results {
+		fmt.Println(r)
+	}
+	fmt.Printf("9 jobs × 100ms on 3 workers = %v\n",
+		time.Since(start).Round(10*time.Millisecond))
+}</code></pre></div>
+        <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./06-workerpool
+worker 1 finished job 3
+worker 2 finished job 2
+worker 3 finished job 1
+worker 3 finished job 6
+worker 2 finished job 5
+worker 1 finished job 4
+worker 2 finished job 9
+worker 1 finished job 8
+worker 3 finished job 7
+9 jobs × 100ms on 3 workers = 300ms</pre></div>
+        <p class="use"><b>Notice:</b> 900ms of work done in 300ms. Change it to 1 worker or 9 workers and re-check the clock.</p>
+      </article>
+
+      <article class="card" data-kw="context cancel timeout done stop worker deadline">
+        <h3><span class="num">07</span> context <span class="tag">please stop</span></h3>
+        <p class="what">A worker that ticks forever — until the context's 350ms deadline pulls the plug.</p>
+        <div class="codebox"><pre><code>package main
+
+import (
+	"context"
+	"fmt"
+	"time"
+)
+
+func tick(ctx context.Context) {
+	for i := 1; ; i++ {
+		select {
+		case <-ctx.Done(): // cancelled or timed out
+			fmt.Println("worker: stopping —", ctx.Err())
+			return
+		case <-time.After(100 * time.Millisecond):
+			fmt.Println("worker: tick", i)
+		}
+	}
+}
+
+func main() {
+	ctx, cancel := context.WithTimeout(
+		context.Background(), 350*time.Millisecond)
+	defer cancel() // always, even on success
+
+	tick(ctx) // returns when the context fires
+	fmt.Println("main: clean exit")
+}</code></pre></div>
+        <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./07-context
+worker: tick 1
+worker: tick 2
+worker: tick 3
+worker: stopping — context deadline exceeded
+main: clean exit</pre></div>
+        <p class="use"><b>Notice:</b> 3 ticks fit inside 350ms, then <code>ctx.Done()</code> fires. Swap <code>WithTimeout</code> for <code>WithCancel</code> and call <code>cancel()</code> yourself.</p>
+      </article>
+
+      <article class="card" data-kw="errgroup fan out first error x/sync limit parallel">
+        <h3><span class="num">08</span> errgroup <span class="tag">x/sync</span></h3>
+        <p class="what">Fan out three calls; one fails. The group hands you exactly the first error.</p>
+        <div class="codebox"><pre><code>// needs: go get golang.org/x/sync/errgroup
+package main
+
+import (
+	"errors"
+	"fmt"
+
+	"golang.org/x/sync/errgroup"
+)
+
+func fetch(url string) error {
+	if url == "https://bad.example" {
+		return errors.New("boom: " + url)
+	}
+	fmt.Println("fetched", url)
+	return nil
+}
+
+func main() {
+	var g errgroup.Group
+	g.SetLimit(2) // at most 2 at a time
+
+	urls := []string{
+		"https://go.dev",
+		"https://bad.example",
+		"https://github.com",
+	}
+	for _, u := range urls {
+		g.Go(func() error {
+			return fetch(u)
+		})
+	}
+
+	// Wait returns the FIRST error (or nil)
+	if err := g.Wait(); err != nil {
+		fmt.Println("g.Wait() →", err)
+	}
+}</code></pre></div>
+        <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./08-errgroup
+fetched https://github.com
+fetched https://go.dev
+g.Wait() → boom: https://bad.example</pre></div>
+        <p class="use"><b>Notice:</b> the good fetches still ran; <code>Wait</code> surfaced the one failure. This is programs 02+03 with error handling built in — your default for real fan-out.</p>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- ================= BACKEND LAB ================= -->
+  <section class="section" id="backend" style="--tint:var(--c-back)">
+    <div class="sec-head"><h2>Backend lab</h2><span class="whisper">JSON, HTTP, a real database, and dying gracefully</span></div>
+    <div class="grid">
+
+      <article class="card" data-kw="json marshal unmarshal encode decode struct tags omitempty">
+        <h3><span class="num">09</span> JSON both ways <span class="tag">encoding</span></h3>
+        <p class="what">Struct to JSON and back, with tags doing the naming.</p>
+        <div class="codebox"><pre><code>package main
+
+import (
+	"encoding/json"
+	"fmt"
+)
+
+type Note struct {
+	ID   int      `json:"id"`
+	Text string   `json:"text"`
+	Tags []string `json:"tags,omitempty"`
+}
+
+func main() {
+	// struct → JSON (marshal)
+	n := Note{ID: 1, Text: "hello",
+		Tags: []string{"go", "demo"}}
+	out, _ := json.MarshalIndent(n, "", "  ")
+	fmt.Println(string(out))
+
+	// JSON → struct (unmarshal)
+	raw := `{"id": 2, "text": "from the wire"}`
+	var m Note
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		panic(err)
+	}
+	fmt.Printf("%+v\n", m)
+}</code></pre></div>
+        <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./09-json
+{
+  "id": 1,
+  "text": "hello",
+  "tags": [
+    "go",
+    "demo"
+  ]
+}
+{ID:2 Text:from the wire Tags:[]}</pre></div>
+        <p class="use"><b>Notice:</b> the input had no <code>tags</code>, so <code>Tags</code> came back as a nil slice — and <code>omitempty</code> would hide it on the way out.</p>
+      </article>
+
+      <article class="card" data-kw="http server client api get json request response mux pathvalue">
+        <h3><span class="num">10</span> HTTP server + client <span class="tag">one file</span></h3>
+        <p class="what">A JSON API and the code that calls it — the server runs in a goroutine (lesson 01 pays off).</p>
+        <div class="codebox"><pre><code>package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"time"
+)
+
+type Pong struct {
+	Msg string `json:"msg"`
+	N   int    `json:"n"`
+}
+
+func main() {
+	mux := http.NewServeMux()
+	n := 0
+	mux.HandleFunc("GET /ping",
+		func(w http.ResponseWriter, r *http.Request) {
+			n++
+			json.NewEncoder(w).Encode(Pong{"pong", n})
+		})
+
+	go http.ListenAndServe(":8090", mux) // serve…
+	time.Sleep(100 * time.Millisecond)   // …boot up
+
+	for range 3 { // …and call ourselves
+		res, err := http.Get(
+			"http://localhost:8090/ping")
+		if err != nil {
+			panic(err)
+		}
+		var p Pong
+		json.NewDecoder(res.Body).Decode(&p)
+		res.Body.Close()
+		fmt.Printf("%d ← %+v\n", res.StatusCode, p)
+	}
+}</code></pre></div>
+        <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./10-httpapi
+200 ← {Msg:pong N:1}
+200 ← {Msg:pong N:2}
+200 ← {Msg:pong N:3}</pre></div>
+        <p class="use"><b>Notice:</b> the counter increments across requests — server state lives as long as the process. (Spot the race if two clients hit it at once? Lesson 03 says <code>n++</code> needs a mutex.)</p>
+      </article>
+
+      <article class="card" data-kw="mysql database sql connect insert query driver ping docker">
+        <h3><span class="num">11</span> MySQL connect + CRUD <span class="tag">database/sql</span></h3>
+        <p class="what">Open, ping, create, insert, read back — the whole database handshake in 40 lines.</p>
+        <div class="codebox"><pre><code>// needs: go get github.com/go-sql-driver/mysql
+// and a server:
+//   docker run -d --name mysql-demo \
+//     -e MYSQL_ROOT_PASSWORD=secret \
+//     -e MYSQL_DATABASE=notes \
+//     -p 3306:3306 mysql:8
+package main
+
+import (
+	"database/sql"
+	"fmt"
+
+	_ "github.com/go-sql-driver/mysql"
+)
+
+func main() {
+	db, err := sql.Open("mysql",
+		"root:secret@tcp(localhost:3306)/notes")
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+
+	if err := db.Ping(); err != nil { // real check
+		panic("unreachable: " + err.Error())
+	}
+	fmt.Println("connected ✓")
+
+	db.Exec(`CREATE TABLE IF NOT EXISTS pets (
+		id   INT AUTO_INCREMENT PRIMARY KEY,
+		name VARCHAR(50) NOT NULL)`)
+
+	res, err := db.Exec(
+		"INSERT INTO pets (name) VALUES (?)",
+		"Gopher")
+	if err != nil {
+		panic(err)
+	}
+	id, _ := res.LastInsertId()
+	fmt.Println("inserted pet with id", id)
+
+	var name string
+	db.QueryRow("SELECT name FROM pets WHERE id = ?",
+		id).Scan(&name)
+	fmt.Println("read back:", name)
+}</code></pre></div>
+        <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./11-mysql
+connected ✓
+inserted pet with id 1
+read back: Gopher</pre></div>
+        <p class="use"><b>Notice:</b> <code>sql.Open</code> doesn't connect — it just validates the string. <code>db.Ping()</code> is the moment credentials actually get tested. The <code>?</code> placeholders are your SQL-injection armor.</p>
+      </article>
+
+      <article class="card" data-kw="graceful shutdown sigterm signal drain deploy kubernetes server">
+        <h3><span class="num">12</span> graceful shutdown <span class="tag">production</span></h3>
+        <p class="what">The deploy-day pattern — this program sends <em>itself</em> a SIGTERM so you can watch the drain.</p>
+        <div class="codebox"><pre><code>package main
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+)
+
+func main() {
+	srv := &http.Server{Addr: ":8091"}
+
+	ctx, stop := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go srv.ListenAndServe()
+	fmt.Println("serving on :8091")
+
+	go func() { // pretend k8s kills us in 300ms
+		time.Sleep(300 * time.Millisecond)
+		syscall.Kill(os.Getpid(), syscall.SIGTERM)
+	}()
+
+	<-ctx.Done() // block until the signal
+	fmt.Println("SIGTERM received, draining…")
+
+	shCtx, cancel := context.WithTimeout(
+		context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shCtx); err != nil {
+		panic(err)
+	}
+	fmt.Println("in-flight requests done, clean exit ✓")
+}</code></pre></div>
+        <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./12-shutdown
+serving on :8091
+SIGTERM received, draining…
+in-flight requests done, clean exit ✓</pre></div>
+        <p class="use"><b>Notice:</b> everything from this lab is in here — a goroutine (01), a signal context (07), and a select-like block on <code>ctx.Done()</code>. Delete the fake-SIGTERM goroutine and it waits for a real Ctrl-C.</p>
+      </article>
+
+    </div>
+  </section>
+
+  <footer>
+    <p class="paw">Lab complete 🥽 — now go break something on purpose.</p>
+    <p><a href="./">Basics sheet</a> · <a href="advanced.html">Advanced sheet</a> · press <b>/</b> to search</p>
+  </footer>
+
+</main>
+
+<script>
+/* ---------- tiny Go syntax highlighter ---------- */
+(function () {
+  const KW = /\b(package|import|func|return|var|const|type|struct|interface|map|chan|go|defer|select|switch|case|default|if|else|for|range|break|continue|fallthrough|goto)\b/g;
+  const TY = /\b(string|int|int64|float64|bool|byte|rune|error|any|nil|true|false|iota|make|new|len|cap|append|copy|delete|close|panic|recover)\b/g;
+  document.querySelectorAll('.codebox pre code').forEach(el => {
+    let src = el.textContent;
+    src = src.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const parts = src.split(/((?:\/\/[^\n]*)|(?:"(?:[^"\\\n]|\\.)*")|(?:`[^`]*`))/);
+    el.innerHTML = parts.map((p, i) => {
+      if (i % 2) {
+        return p.startsWith('//') ? '<span class="c">' + p + '</span>'
+                                  : '<span class="s">' + p + '</span>';
+      }
+      return p.replace(KW, '<span class="k">$1</span>')
+              .replace(TY, '<span class="t">$1</span>')
+              .replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="n">$1</span>');
+    }).join('');
+  });
+})();
+
+/* ---------- copy buttons ---------- */
+document.querySelectorAll('.codebox').forEach(box => {
+  const btn = document.createElement('button');
+  btn.className = 'copy';
+  btn.textContent = 'copy';
+  btn.setAttribute('aria-label', 'Copy program');
+  btn.addEventListener('click', () => {
+    navigator.clipboard.writeText(box.querySelector('pre').textContent).then(() => {
+      btn.textContent = 'copied ✓';
+      btn.classList.add('done');
+      setTimeout(() => { btn.textContent = 'copy'; btn.classList.remove('done'); }, 1400);
+    });
+  });
+  box.appendChild(btn);
+});
+
+/* ---------- search / filter ---------- */
+const q = document.getElementById('q');
+const hits = document.getElementById('hits');
+const cards = [...document.querySelectorAll('.card, .clone')];
+const sections = [...document.querySelectorAll('.section')];
+
+function filter() {
+  const term = q.value.trim().toLowerCase();
+  let shown = 0;
+  cards.forEach(c => {
+    const hay = (c.dataset.kw || '') + ' ' + c.textContent.toLowerCase();
+    const ok = !term || hay.includes(term);
+    c.classList.toggle('hidden', !ok);
+    if (ok) shown++;
+  });
+  sections.forEach(s => {
+    const any = [...s.querySelectorAll('.card, .clone')].some(c => !c.classList.contains('hidden'));
+    s.classList.toggle('hidden', !any);
+  });
+  hits.textContent = term ? shown + ' program' + (shown === 1 ? '' : 's') : '';
+}
+q.addEventListener('input', filter);
+q.addEventListener('keydown', e => { if (e.key === 'Escape') { q.value = ''; filter(); q.blur(); } });
+document.addEventListener('keydown', e => {
+  if (e.key === '/' && document.activeElement !== q) { e.preventDefault(); q.focus(); }
+});
+</script>
+</body>
+</html>

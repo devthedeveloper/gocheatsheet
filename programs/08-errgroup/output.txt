@@ -1,0 +1,3 @@
+fetched https://github.com
+fetched https://go.dev
+g.Wait() → boom: https://bad.example

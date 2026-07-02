@@ -1,0 +1,3 @@
+connected ✓
+inserted pet with id 1
+read back: Gopher

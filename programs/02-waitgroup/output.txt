@@ -1,0 +1,5 @@
+waiting for 3 workers…
+worker 1 done (100ms)
+worker 2 done (200ms)
+worker 3 done (300ms)
+all done ✓

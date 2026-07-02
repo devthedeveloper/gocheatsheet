@@ -1,0 +1,9 @@
+{
+  "id": 1,
+  "text": "hello",
+  "tags": [
+    "go",
+    "demo"
+  ]
+}
+{ID:2 Text:from the wire Tags:[]}
