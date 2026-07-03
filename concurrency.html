@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 5 · Concurrency — Go interview prep</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#eef0f8;
+  --ink:#191634;
+  --ink-soft:#565182;
+  --card:#ffffff;
+  --line:#ddd9ee;
+  --navy:#171335;
+
+  --indigo:#6366f1;
+  --cyan:#00add8;
+  --gold:#e8990c;
+  --rose:#ef4d63;
+  --green:#12916a;
+
+  --radius:18px;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;scroll-padding-top:88px}
+@media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto} *{transition:none!important;animation:none!important} }
+body{background:var(--paper);color:var(--ink);font-family:'Atkinson Hyperlegible',system-ui,sans-serif;font-size:16px;line-height:1.6}
+::selection{background:#c9c5f5}
+
+/* nav */
+.topbar{position:sticky;top:0;z-index:50;background:rgba(238,240,248,.9);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.topbar-inner{max-width:1180px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:9px;overflow-x:auto;scrollbar-width:none}
+.topbar-inner::-webkit-scrollbar{display:none}
+.brand{font-family:Fredoka,sans-serif;font-weight:700;font-size:16px;white-space:nowrap;margin-right:4px;color:var(--navy);text-decoration:none;flex:0 0 auto}
+.brand b{color:var(--indigo)}
+.chip{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;font-family:Fredoka,sans-serif;font-weight:600;font-size:13px;color:var(--ink);text-decoration:none;padding:6px 12px;border-radius:99px;background:#fff;border:1.5px solid var(--line);transition:transform .12s,border-color .12s}
+.chip:hover{transform:translateY(-1px)}
+.chip.active{border-color:var(--indigo);box-shadow:0 0 0 3px color-mix(in srgb,var(--indigo) 16%,transparent)}
+.chip.swap{background:var(--navy);color:#fff;border-color:var(--navy)}
+.chip .dot{width:8px;height:8px;border-radius:50%;background:var(--indigo)}
+.chip:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid var(--indigo);outline-offset:2px}
+
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px}
+
+/* hero */
+.hero{position:relative;margin-top:60px}
+.hero-card{position:relative;background:linear-gradient(150deg,#171335 0%,#312e81 55%,#0e7490 120%);border-radius:28px;padding:52px 46px 42px;color:#eef0ff;overflow:visible;box-shadow:0 20px 44px -20px rgba(23,19,53,.55)}
+.gopher{position:absolute;top:-54px;right:6%;width:150px;height:auto;pointer-events:none}
+.eyebrow{display:inline-flex;gap:8px;align-items:center;font-family:Fredoka,sans-serif;font-weight:600;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#a5b4fc}
+.eyebrow::before{content:"";width:22px;height:3px;border-radius:2px;background:var(--cyan)}
+.hero h1{font-family:Fredoka,sans-serif;font-weight:700;font-size:clamp(28px,4.4vw,46px);line-height:1.1;margin:14px 0 12px;max-width:18ch}
+.hero h1 .hl{position:relative;white-space:nowrap}
+.hero h1 .hl::after{content:"";position:absolute;left:-2%;right:-2%;bottom:4%;height:.3em;background:var(--hl);border-radius:4px;z-index:-1;opacity:.85}
+.hero h1 .hl.a{--hl:#6366f199}.hero h1 .hl.b{--hl:#00add899}
+.hero p.sub{max-width:56ch;color:#cdd3f7;font-size:16.5px}
+.hero p.sub a{color:#7ee7ff}
+.legend{margin-top:24px;display:flex;flex-wrap:wrap;gap:8px}
+.legend .lg{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.18);border-radius:10px;padding:6px 11px;font-size:12.5px;color:#e7eaff}
+.legend .lg b{font-family:Fredoka,sans-serif;font-weight:600}
+.searchrow{margin-top:22px;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.search{flex:1 1 300px;max-width:460px;display:flex;align-items:center;gap:10px;background:#fff;border-radius:99px;padding:11px 18px;border:2px solid transparent}
+.search:focus-within{border-color:var(--cyan)}
+.search input{border:0;outline:0;flex:1;font:inherit;font-size:15.5px;color:var(--ink);background:transparent;min-width:0}
+.search kbd{font-family:var(--mono);font-size:12px;color:var(--ink-soft);border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;padding:1px 7px}
+.hits{font-family:Fredoka,sans-serif;font-weight:600;font-size:13.5px;color:#a5b4fc;min-width:9ch}
+
+/* section */
+.section{margin-top:58px}
+.sec-head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:4px}
+.sec-head h2{font-family:Fredoka,sans-serif;font-weight:700;font-size:26px;display:flex;align-items:center;gap:12px}
+.sec-head h2 .sn{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:var(--tint);color:#fff;font-size:15px;flex:0 0 auto}
+.sec-head .whisper{color:var(--ink-soft);font-size:14.5px}
+
+.note{margin-top:18px;background:var(--card);border:1.5px solid var(--line);border-left:5px solid var(--tint);border-radius:var(--radius);padding:22px 24px 18px}
+.note .oneliner{font-size:17px;font-weight:700;color:var(--ink);margin-bottom:4px;line-height:1.4}
+.note .oneliner::before{content:"❯ ";color:var(--tint)}
+.note h4{font-family:Fredoka,sans-serif;font-weight:600;font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--tint);margin:18px 0 7px;display:flex;align-items:center;gap:7px}
+.note p{margin-bottom:9px}
+.note p:last-child{margin-bottom:0}
+.note strong{color:var(--ink)}
+
+.codebox{position:relative}
+pre{background:#f5f6fc;border:1px solid #e4e2f3;border-radius:12px;padding:13px 15px;overflow-x:auto;font-family:var(--mono);font-size:12.6px;line-height:1.62;tab-size:4;font-variant-ligatures:none}
+code{font-family:var(--mono);font-variant-ligatures:none}
+.k{color:#c2186a;font-weight:700}.t{color:#0b6bcb}.s{color:#188a4c}.c{color:#8781a3;font-style:italic}.n{color:#b45309}
+.copy{position:absolute;top:8px;right:8px;font-family:Fredoka,sans-serif;font-weight:600;font-size:11px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink-soft);padding:3px 9px;cursor:pointer;opacity:0;transition:opacity .12s}
+.note:hover .copy,.prob:hover .copy,.copy:focus-visible{opacity:1}
+.copy.done{color:#188a4c;border-color:#188a4c}
+:where(p,li) code{background:#eef0f8;border:1px solid var(--line);border-radius:5px;padding:0 5px;font-size:.88em;color:#0b6bcb}
+
+/* gotchas */
+.gotchas{background:#fff5f6;border:1px solid #f6d5da;border-radius:12px;padding:12px 16px;margin-top:6px}
+.gotchas ul{margin:0;padding-left:20px}
+.gotchas li{margin:5px 0;font-size:14px}
+.gotchas li::marker{content:"⚠ "}
+
+/* state table */
+.stbl{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+.stbl th{font-family:Fredoka,sans-serif;font-weight:600;font-size:12px;background:#eef0f8;color:var(--ink);padding:7px 10px;text-align:left;border:1px solid var(--line)}
+.stbl td{padding:7px 10px;border:1px solid var(--line)}
+.stbl .bad{color:#c2186a;font-weight:700}.stbl .blk{color:#b45309}.stbl .ok{color:#188a4c}
+
+/* Q&A flip */
+.qa{margin-top:8px;display:flex;flex-direction:column;gap:8px}
+details.flip{border:1.5px solid var(--line);border-radius:12px;background:#fbfbff;overflow:hidden}
+details.flip>summary{cursor:pointer;list-style:none;padding:11px 15px;font-weight:700;color:var(--ink);display:flex;align-items:flex-start;gap:9px;font-size:14.5px}
+details.flip>summary::-webkit-details-marker{display:none}
+details.flip>summary::before{content:"Q";flex:0 0 auto;display:grid;place-items:center;width:20px;height:20px;border-radius:6px;background:var(--gold);color:#fff;font-family:Fredoka,sans-serif;font-size:12px;margin-top:1px}
+details.flip>summary::after{content:"reveal ▾";margin-left:auto;font-family:Fredoka,sans-serif;font-weight:600;font-size:11.5px;color:var(--ink-soft);white-space:nowrap}
+details.flip[open]>summary::after{content:"hide ▴"}
+details.flip[open]>summary{border-bottom:1px dashed var(--line)}
+.ans{padding:12px 15px 13px 44px;font-size:14px;color:#33305c}
+.ans b{color:var(--ink)}
+.ans .follow{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);font-size:13px;color:var(--ink-soft)}
+.ans .follow b{color:var(--gold)}
+
+/* practice */
+#practice .sec-head h2 .sn{background:var(--gold)}
+.parena{margin-top:8px;background:linear-gradient(180deg,#fffaf0,#fff);border:1.5px solid #f0dcae;border-radius:var(--radius);padding:6px 20px 20px}
+.ptype{font-family:Fredoka,sans-serif;font-weight:700;font-size:15px;color:#8a5a06;margin:18px 0 4px;display:flex;align-items:center;gap:9px}
+.ptype small{font-weight:400;color:var(--ink-soft);font-family:'Atkinson Hyperlegible',sans-serif;font-size:12.5px}
+.prob{position:relative;background:#fff;border:1.5px solid var(--line);border-radius:14px;padding:15px 17px 13px;margin-top:12px}
+.prob .phead{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:8px}
+.prob .pid{font-family:Fredoka,sans-serif;font-weight:700;color:var(--gold)}
+.prob .ptitle{font-weight:700}
+.prob .diff{margin-left:auto;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border-radius:99px;padding:3px 9px}
+.diff.warm{background:#e7f6ef;color:#12916a}
+.diff.core{background:#e8effc;color:#2f5fd0}
+.diff.chal{background:#fbe7ee;color:#c2186a}
+.prob . task{font-size:14px;margin-bottom:8px}
+details.sol{border:1.5px dashed #e2b979;border-radius:11px;background:#fffdf7;overflow:hidden;margin-top:8px}
+details.sol>summary{cursor:pointer;list-style:none;padding:9px 14px;font-family:Fredoka,sans-serif;font-weight:600;font-size:13px;color:#8a5a06;display:flex;align-items:center;gap:8px}
+details.sol>summary::-webkit-details-marker{display:none}
+details.sol>summary::before{content:"🔒";font-size:13px}
+details.sol[open]>summary::before{content:"🔓"}
+details.sol[open]>summary{border-bottom:1px dashed #e2b979}
+details.sol .solbody{padding:12px 15px}
+details.sol .solbody p{font-size:13.5px;margin-bottom:8px}
+.termout{background:#141031;border-radius:10px;padding:10px 13px;font-family:var(--mono);font-size:12px;color:#c7f9e6;overflow-x:auto;margin-top:8px;white-space:pre-wrap;line-height:1.55}
+.termout .pr{color:#5eead4;font-weight:700}
+.termout .cm{color:#8b87b8;font-style:italic}
+
+.submit{margin-top:18px;background:#171335;color:#e7eaff;border-radius:14px;padding:16px 20px;font-size:14px}
+.submit b{color:#a5b4fc;font-family:Fredoka,sans-serif}
+.submit code{background:rgba(255,255,255,.12);border-radius:5px;padding:1px 6px;color:#7ee7ff}
+
+footer{margin:70px 0 40px;text-align:center;color:var(--ink-soft);font-size:14px}
+footer .paw{font-family:Fredoka,sans-serif;font-weight:600;color:var(--navy)}
+footer a{color:var(--indigo)}
+.hidden{display:none!important}
+
+@media (max-width:760px){.hero-card{padding:40px 24px 32px}.gopher{width:104px;top:-38px}.note{padding:18px}.section{margin-top:44px}}
+@media print{.topbar,.searchrow,.copy,.gopher{display:none!important}details.flip,details.sol{border-color:#999}details[open]{}body{background:#fff}}
+</style>
+</head>
+<body>
+
+<nav class="topbar" aria-label="Sections">
+  <div class="topbar-inner">
+    <a class="brand" href="#top">go<b>cheat</b>.sheet · M5</a>
+    <a class="chip swap" href="./">Basics</a>
+    <a class="chip swap" href="advanced.html">Advanced</a>
+    <a class="chip swap" href="programs.html">Run it ▶</a>
+    <a class="chip" href="#goroutines"><span class="dot"></span>Goroutines</a>
+    <a class="chip" href="#channels"><span class="dot"></span>Channels</a>
+    <a class="chip" href="#select"><span class="dot"></span>select</a>
+    <a class="chip" href="#sync"><span class="dot"></span>sync</a>
+    <a class="chip" href="#context"><span class="dot"></span>context</a>
+    <a class="chip" href="#patterns"><span class="dot"></span>Patterns</a>
+    <a class="chip" href="#races"><span class="dot"></span>Races</a>
+    <a class="chip" href="#practice" style="background:#e8990c;color:#fff;border-color:#e8990c"><span class="dot" style="background:#fff"></span>Practice</a>
+  </div>
+</nav>
+
+<main class="wrap" id="top">
+  <header class="hero">
+    <div class="hero-card">
+      <svg class="gopher" viewBox="0 0 200 140" aria-hidden="true">
+        <circle cx="45" cy="34" r="15" fill="#00add8" stroke="#0b2530" stroke-width="3"/>
+        <circle cx="155" cy="34" r="15" fill="#00add8" stroke="#0b2530" stroke-width="3"/>
+        <circle cx="45" cy="34" r="6.5" fill="#8fdcef"/><circle cx="155" cy="34" r="6.5" fill="#8fdcef"/>
+        <path d="M25 108 Q25 22 100 22 Q175 22 175 108 Z" fill="#00add8" stroke="#0b2530" stroke-width="3"/>
+        <circle cx="70" cy="66" r="16" fill="#fff" stroke="#0b2530" stroke-width="3"/>
+        <circle cx="130" cy="66" r="16" fill="#fff" stroke="#0b2530" stroke-width="3"/>
+        <circle cx="70" cy="70" r="6" fill="#0b2530"/><circle cx="130" cy="70" r="6" fill="#0b2530"/>
+        <ellipse cx="100" cy="86" rx="12" ry="8" fill="#f5d7b2" stroke="#0b2530" stroke-width="3"/>
+        <ellipse cx="100" cy="81" rx="4.5" ry="3" fill="#5b4632"/>
+        <rect x="94" y="90" width="12" height="10" rx="2.5" fill="#fff" stroke="#0b2530" stroke-width="2.5"/>
+        <!-- open book (studying) -->
+        <path d="M52 112 L100 104 L148 112 L148 134 L100 126 L52 134 Z" fill="#f5f0ff" stroke="#0b2530" stroke-width="3"/>
+        <path d="M100 104 L100 126" stroke="#0b2530" stroke-width="3"/>
+        <path d="M62 116 L92 111 M62 122 L92 117 M108 111 L138 116 M108 117 L138 122" stroke="#6366f1" stroke-width="2" opacity=".8"/>
+      </svg>
+      <span class="eyebrow">Interview prep · Module 5 of 24</span>
+      <h1>Concurrency — the module that <span class="hl a">makes or breaks</span> a <span class="hl b">Go interview</span></h1>
+      <p class="sub">Goroutines, channels, <code>select</code>, the <code>sync</code> toolbox, <code>context</code>, the patterns, and how races &amp; deadlocks happen. Every code sample and every practice answer on this page was <strong>run on Go 1.25</strong> — the outputs are real. Read a note, flip the Q to test yourself, then hit the <a href="#practice">practice arena</a> and send me your answers to grade.</p>
+      <div class="legend">
+        <span class="lg"><b>❯</b> one-liner</span>
+        <span class="lg"><b>How</b> the internals</span>
+        <span class="lg"><b>⚠</b> gotchas they probe</span>
+        <span class="lg"><b>Q</b> flip-to-reveal answers</span>
+      </div>
+      <div class="searchrow">
+        <label class="search">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#565182" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="q" type="search" placeholder="search “mutex”, “deadlock”, “buffered”, “context”…" aria-label="Search">
+          <kbd>/</kbd>
+        </label>
+        <span class="hits" id="hits"></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============ GOROUTINES ============ -->
+  <section class="section" id="goroutines" style="--tint:var(--indigo)" data-kw="goroutine thread scheduler gmp stack leak stop kill">
+    <div class="sec-head"><h2><span class="sn">1</span> Goroutines</h2><span class="whisper">the unit of concurrency — cheap, but not free of consequences</span></div>
+    <div class="note">
+      <p class="oneliner">A goroutine is a function run concurrently, scheduled by the Go runtime onto OS threads — light enough to spawn millions.</p>
+      <h4>How it works</h4>
+      <p><code>go f()</code> puts <code>f</code> on a run queue and returns <em>immediately</em>. The runtime multiplexes many goroutines (<strong>G</strong>) onto a few OS threads (<strong>M</strong>) through logical processors (<strong>P</strong>) — the <strong>G-M-P scheduler</strong>. <code>GOMAXPROCS</code> sets how many run in parallel (defaults to CPU count). Stacks start at ~2&nbsp;KB and grow on demand, which is why millions fit where OS threads (1–2&nbsp;MB each) would not.</p>
+      <p>Crucially: <strong>when <code>main</code> returns the process exits and every goroutine dies instantly</strong>, no cleanup. So you always need a way to <em>wait</em> (a WaitGroup or a channel).</p>
+      <div class="codebox"><pre><code>func main() {
+	go greet("A")          // starts, returns instantly
+	go greet("B")
+
+	// main must stick around, or A and B never run:
+	time.Sleep(time.Second) // crude — real code uses sync.WaitGroup
+
+	// there is NO way to kill a goroutine from outside.
+	// it exits only by returning — so you design the exit in
+	// (a closed channel, or ctx.Done()).
+}</code></pre></div>
+      <h4>⚠ Gotchas they probe</h4>
+      <div class="gotchas"><ul>
+        <li><code>main</code> returning kills all goroutines — unsynchronized "fire and forget" loses work.</li>
+        <li>You <strong>cannot</strong> stop a goroutine externally; it must return on its own. Signal it (ctx / closed channel) and have it check.</li>
+        <li>A goroutine blocked forever on a channel is a <strong>leak</strong> — it costs memory and never gets collected.</li>
+        <li>Goroutines touching shared memory still need synchronization — concurrency ≠ safety.</li>
+      </ul></div>
+      <h4>Interview Q&amp;A</h4>
+      <div class="qa">
+        <details class="flip"><summary>Goroutine vs OS thread — what's the difference?</summary><div class="ans">A goroutine is a <b>user-space</b> construct: ~2&nbsp;KB growable stack, scheduled by the Go runtime, context-switched without a kernel call. An OS thread is ~1–2&nbsp;MB, scheduled by the kernel. Go multiplexes <b>many goroutines onto few threads</b> (the G-M-P model), so you can run hundreds of thousands cheaply.<div class="follow"><b>Follow-up — how many can you run?</b> Millions; the limit is memory (stacks), not thread count.</div></div></details>
+        <details class="flip"><summary>How do you stop a running goroutine?</summary><div class="ans">You don't — not from outside. A goroutine ends only by returning. You give it a <b>cancellation signal</b> — <code>ctx.Done()</code> or a channel you <code>close()</code> — and the goroutine <code>select</code>s on it and returns when it fires. Anything else is a leak.</div></details>
+        <details class="flip"><summary>What happens if <code>main</code> returns while goroutines are still working?</summary><div class="ans">They're killed <b>immediately</b> — no deferred functions run, no cleanup. That's why every spawned goroutine needs something (WaitGroup, channel, errgroup) that makes <code>main</code> wait for it.</div></details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CHANNELS ============ -->
+  <section class="section" id="channels" style="--tint:var(--cyan)" data-kw="channel buffered unbuffered close nil send receive range direction">
+    <div class="sec-head"><h2><span class="sn">2</span> Channels</h2><span class="whisper">pass data and synchronize in one move</span></div>
+    <div class="note">
+      <p class="oneliner">A typed conduit between goroutines that transfers a value <em>and</em> synchronizes the two ends. "Don't communicate by sharing memory; share memory by communicating."</p>
+      <h4>How it works</h4>
+      <p><strong>Unbuffered</strong> (<code>make(chan T)</code>) is a synchronous hand-off: a send blocks until a receiver is ready, and vice-versa. <strong>Buffered</strong> (<code>make(chan T, n)</code>) holds up to <code>n</code> items; send blocks only when full, receive only when empty. <code>close(ch)</code> announces "no more values"; a <code>range</code> loop drains then ends, and a receive after draining yields the zero value with <code>ok == false</code>.</p>
+      <div class="codebox"><pre><code>ch := make(chan int, 2) // buffered, capacity 2
+ch <- 1                 // doesn't block (room)
+ch <- 2                 // doesn't block (now full)
+close(ch)               // sender says: no more
+
+for v := range ch {     // drains 1, 2, then loop ends
+	fmt.Println(v)
+}
+v, ok := <-ch           // 0, false  (drained + closed)</code></pre></div>
+      <h4>Channel states — memorize this table</h4>
+      <table class="stbl">
+        <tr><th></th><th>nil channel</th><th>open</th><th>closed</th></tr>
+        <tr><td>send <code>ch&lt;-x</code></td><td class="blk">blocks forever</td><td class="ok">works</td><td class="bad">panic</td></tr>
+        <tr><td>receive <code>&lt;-ch</code></td><td class="blk">blocks forever</td><td class="ok">works</td><td class="ok">zero, false</td></tr>
+        <tr><td>close</td><td class="bad">panic</td><td class="ok">works</td><td class="bad">panic</td></tr>
+      </table>
+      <h4>⚠ Gotchas they probe</h4>
+      <div class="gotchas"><ul>
+        <li>Send on a closed channel <strong>panics</strong>; closing twice <strong>panics</strong>. Rule: only the <strong>sender</strong> closes, exactly once.</li>
+        <li>A receiver must never close — it can't know if more is coming, and risks a send-on-closed panic elsewhere.</li>
+        <li>Unbuffered send with no receiver = deadlock (if it's the last goroutine) or a leak.</li>
+        <li>You only need to <code>close</code> if receivers <code>range</code> or otherwise wait on it.</li>
+      </ul></div>
+      <h4>Interview Q&amp;A</h4>
+      <div class="qa">
+        <details class="flip"><summary>Buffered vs unbuffered — when do you use each?</summary><div class="ans"><b>Unbuffered</b> when you need a synchronization guarantee — the send doesn't complete until someone receives (a hand-off). <b>Buffered</b> when you want to decouple producer and consumer speeds, or cap the number of in-flight items (e.g. one slot per worker).<div class="follow"><b>Follow-up — does buffering change correctness?</b> It can hide backpressure. An over-large buffer lets a fast producer pile up memory instead of being throttled by a slow consumer.</div></div></details>
+        <details class="flip"><summary>Who is responsible for closing a channel, and why?</summary><div class="ans">The <b>sender</b>, exactly once. Only the sender knows when there are no more values. If a receiver closed it, another sender could then panic with "send on closed channel." With multiple senders, coordinate a close via a separate "done" signal or a <code>sync.WaitGroup</code> + a single closer goroutine.</div></details>
+        <details class="flip"><summary>What does receiving from a closed channel return?</summary><div class="ans">First it drains any buffered values, then it returns the element's <b>zero value</b> with <code>ok == false</code> — forever, without blocking. The <code>v, ok := &lt;-ch</code> form is how you detect closure.</div></details>
+        <details class="flip"><summary>What happens with a nil channel?</summary><div class="ans">Send and receive both <b>block forever</b>; closing one <b>panics</b>. This is occasionally useful: setting a channel variable to <code>nil</code> <b>disables</b> its case in a <code>select</code>.</div></details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SELECT ============ -->
+  <section class="section" id="select" style="--tint:var(--green)" data-kw="select timeout default nil channel first ready time.After">
+    <div class="sec-head"><h2><span class="sn">3</span> select</h2><span class="whisper">wait on many channels; first ready wins</span></div>
+    <div class="note">
+      <p class="oneliner">Blocks until one of several channel operations can proceed, then runs that one. If several are ready, it picks uniformly at random.</p>
+      <h4>How it works</h4>
+      <p>Each <code>case</code> is a channel send or receive. <code>select</code> waits until at least one can proceed. A <code>default</code> case makes it <strong>non-blocking</strong> (run default if nothing's ready). <code>time.After</code> gives you a timeout; <code>ctx.Done()</code> gives you cancellation. A <code>nil</code> channel case is silently skipped — a clean way to turn a case off mid-loop.</p>
+      <div class="codebox"><pre><code>select {
+case v := <-results:
+	use(v)
+case <-ctx.Done():         // cancelled / deadline hit
+	return ctx.Err()
+case <-time.After(2 * time.Second):
+	return errTimeout        // don't wait forever
+}</code></pre></div>
+      <h4>⚠ Gotchas they probe</h4>
+      <div class="gotchas"><ul>
+        <li>Several cases ready → <strong>random</strong> choice. Never depend on ordering.</li>
+        <li><code>default</code> makes <code>select</code> non-blocking — wrap it in a tight loop and you've built a CPU-burning spin.</li>
+        <li><code>time.After</code> inside a <code>for</code> loop allocates a fresh timer every iteration — use a single <code>time.Ticker</code> instead.</li>
+        <li><code>select{}</code> with no cases blocks forever (instant deadlock if it's alone).</li>
+      </ul></div>
+      <h4>Interview Q&amp;A</h4>
+      <div class="qa">
+        <details class="flip"><summary>How do you put a timeout on a channel operation?</summary><div class="ans">Wrap the receive/send in a <code>select</code> with a <code>case &lt;-time.After(d)</code> (relative) or <code>case &lt;-ctx.Done()</code> (propagated deadline). The first to fire wins; if it's the timeout, you bail instead of blocking indefinitely.</div></details>
+        <details class="flip"><summary>Two cases are ready at the same time — which runs?</summary><div class="ans">One is chosen <b>uniformly at random</b>. This is deliberate — it prevents starvation where an always-ready case would monopolize the select.</div></details>
+        <details class="flip"><summary>What's the nil-channel trick in select?</summary><div class="ans">A receive/send on a <code>nil</code> channel blocks forever, so that case is effectively <b>disabled</b>. Setting a channel variable to <code>nil</code> (e.g. after it's drained) removes its case from consideration without restructuring the <code>select</code> — cleaner than juggling booleans.</div></details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SYNC ============ -->
+  <section class="section" id="sync" style="--tint:var(--rose)" data-kw="mutex rwmutex waitgroup once atomic lock unlock copy race sync">
+    <div class="sec-head"><h2><span class="sn">4</span> The sync toolbox</h2><span class="whisper">shared-memory coordination for when channels are the wrong tool</span></div>
+    <div class="note">
+      <p class="oneliner">Locks and helpers for guarding shared state directly: <code>Mutex</code>, <code>RWMutex</code>, <code>WaitGroup</code>, <code>Once</code>, and lock-free <code>atomic</code>.</p>
+      <h4>How it works</h4>
+      <p><strong>Mutex</strong> — one goroutine in the critical section at a time (<code>Lock</code>/<code>Unlock</code>). <strong>RWMutex</strong> — many readers <em>or</em> one writer, for read-heavy data. <strong>WaitGroup</strong> — wait for N goroutines: <code>Add</code> before <code>go</code>, <code>defer Done</code>, <code>Wait</code>. <strong>Once</strong> — run something exactly once ever (lazy init). <strong>atomic</strong> — lock-free operations on a single integer / pointer / bool.</p>
+      <div class="codebox"><pre><code>type Counter struct {
+	mu sync.Mutex
+	n  int
+}
+func (c *Counter) Inc() {   // pointer receiver — see gotcha
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.n++                   // one goroutine at a time
+}
+
+var once sync.Once
+once.Do(loadConfig)         // runs exactly once, ever
+
+var hits atomic.Int64
+hits.Add(1)                 // lock-free; simpler than a mutex for one number</code></pre></div>
+      <h4>⚠ Gotchas they probe</h4>
+      <div class="gotchas"><ul>
+        <li><strong>Copying a Mutex</strong> (a value receiver on a struct that holds one, or passing it by value) locks a <em>copy</em> — protecting nothing. Use pointer receivers; <code>go vet</code> catches it.</li>
+        <li>Don't hold a lock across I/O or other blocking calls — it serializes everyone.</li>
+        <li><code>WaitGroup.Add</code> must run <strong>before</strong> the <code>go</code>, not inside the goroutine (or <code>Wait</code> can return early).</li>
+        <li><code>RWMutex</code> only wins when reads vastly outnumber writes; otherwise plain <code>Mutex</code> is simpler and often faster.</li>
+      </ul></div>
+      <h4>Interview Q&amp;A</h4>
+      <div class="qa">
+        <details class="flip"><summary>Mutex or channel — how do you choose?</summary><div class="ans">Use a <b>mutex</b> to guard shared state that stays in place (a map, a counter, a cache). Use a <b>channel</b> to transfer ownership of data or to signal between goroutines. The proverb is "share memory by communicating," but a mutex around a map is frequently the simpler, faster answer — pick the one that makes the code obvious.</div></details>
+        <details class="flip"><summary>What does a <em>value</em> receiver on a mutex-holding type cause?</summary><div class="ans">Each call copies the struct — including the mutex — so the method locks a <b>fresh copy</b> that nobody else sees. Zero protection; the race is still there. Always use <b>pointer receivers</b> on types with a mutex. <code>go vet</code>'s copylocks check flags this.</div></details>
+        <details class="flip"><summary>atomic vs mutex?</summary><div class="ans"><code>atomic</code> for a <b>single</b> word — a counter, a flag, a pointer swap — where it's lock-free and faster. A <code>Mutex</code> when you must update <b>several</b> fields together as one consistent step. Don't build compound invariants out of multiple atomics; that's how subtle races sneak in.</div></details>
+        <details class="flip"><summary>When is RWMutex actually worth it?</summary><div class="ans">Only when reads <b>massively</b> outnumber writes, because it carries more bookkeeping overhead than a plain Mutex. Under a balanced or write-heavy load, a Mutex usually wins. Measure before reaching for it.</div></details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CONTEXT ============ -->
+  <section class="section" id="context" style="--tint:var(--gold)" data-kw="context cancel timeout deadline done value propagation tree">
+    <div class="sec-head"><h2><span class="sn">5</span> context</h2><span class="whisper">cancellation as a tree — cut a branch, everything below it stops</span></div>
+    <div class="note">
+      <p class="oneliner">The standard way to carry cancellation, deadlines, and request-scoped values across API and goroutine boundaries.</p>
+      <h4>How it works</h4>
+      <p>Contexts form a <strong>tree</strong>: cancelling a parent cancels every child. <code>ctx.Done()</code> is a channel that closes on cancel or timeout; <code>ctx.Err()</code> tells you which (<code>Canceled</code> or <code>DeadlineExceeded</code>). You pass <code>ctx</code> as the <em>first argument</em> down the call chain — a client disconnect at the top propagates all the way to the database query at the bottom.</p>
+      <div class="codebox"><pre><code>ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+defer cancel()                     // ALWAYS — even on success
+
+rows, err := db.QueryContext(ctx, "SELECT ...")  // aborts if ctx fires
+
+// CPU-bound loop? You must check it yourself:
+for _, item := range huge {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	process(item)
+}</code></pre></div>
+      <h4>⚠ Gotchas they probe</h4>
+      <div class="gotchas"><ul>
+        <li>Always <code>defer cancel()</code>, even when the operation succeeds — otherwise you leak the timer and its goroutine. <code>go vet</code> flags a missing cancel.</li>
+        <li>A context only helps if you <strong>check</strong> it (select on <code>Done()</code>) or pass it to ctx-aware calls (<code>QueryContext</code>, <code>http.NewRequestWithContext</code>).</li>
+        <li>Don't stash dependencies in <code>ctx.Value</code> — only request-scoped data (trace id, user id). Use a private key type to avoid collisions.</li>
+        <li>Never store a <code>context</code> in a struct field; pass it explicitly.</li>
+      </ul></div>
+      <h4>Interview Q&amp;A</h4>
+      <div class="qa">
+        <details class="flip"><summary>How does cancelling one request stop all the work it started?</summary><div class="ans">Every derived context shares the cancellation tree. When you cancel the top (or its deadline passes), every child's <code>Done()</code> channel closes. Each layer either <code>select</code>s on <code>Done()</code> or passes <code>ctx</code> into blocking calls, so the signal reaches the database query, the outbound HTTP call, the worker loop — all of it unwinds.</div></details>
+        <details class="flip"><summary>WithCancel vs WithTimeout vs WithDeadline?</summary><div class="ans"><code>WithCancel</code> — you cancel manually. <code>WithTimeout</code> — cancels after a <b>relative</b> duration. <code>WithDeadline</code> — cancels at an <b>absolute</b> time. All three return a <code>cancel</code> function you must call (defer it) to release resources.</div></details>
+        <details class="flip"><summary>Where does the context go, and where does it come from?</summary><div class="ans">It's always the <b>first parameter</b>: <code>func Do(ctx context.Context, ...)</code>. Never a struct field. At the top you start from <code>r.Context()</code> in a handler, or <code>context.Background()</code> in <code>main</code>/tests; <code>context.TODO()</code> is a placeholder when you haven't wired it yet.</div></details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PATTERNS ============ -->
+  <section class="section" id="patterns" style="--tint:var(--indigo)" data-kw="pattern worker pool fan out fan in pipeline errgroup semaphore bounded">
+    <div class="sec-head"><h2><span class="sn">6</span> The patterns</h2><span class="whisper">the four shapes that cover most real concurrent code</span></div>
+    <div class="note">
+      <p class="oneliner">Worker pool, fan-out/fan-in, pipeline, and errgroup — assemble goroutines + channels into reusable structures.</p>
+      <h4>Worker pool — bounded parallelism</h4>
+      <p>N workers pull from one jobs channel; a closer goroutine <code>Wait</code>s then closes the results channel so the collector's <code>range</code> ends.</p>
+      <div class="codebox"><pre><code>func pool(jobs []int, workers int) []int {
+	in, out := make(chan int), make(chan int)
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {   // fixed crew
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range in { out <- process(j) }
+		}()
+	}
+	go func() { for _, j := range jobs { in <- j }; close(in) }()
+	go func() { wg.Wait(); close(out) }()  // close AFTER all workers done
+	var res []int
+	for r := range out { res = append(res, r) }
+	return res
+}</code></pre></div>
+      <h4>Fan-in — merge many channels into one</h4>
+      <div class="codebox"><pre><code>func merge(cs ...<-chan int) <-chan int {
+	out := make(chan int)
+	var wg sync.WaitGroup
+	for _, c := range cs {
+		wg.Add(1)
+		go func(c <-chan int) { defer wg.Done(); for v := range c { out <- v } }(c)
+	}
+	go func() { wg.Wait(); close(out) }()
+	return out
+}</code></pre></div>
+      <h4>Semaphore — cap concurrency without a pool</h4>
+      <div class="codebox"><pre><code>sem := make(chan struct{}, 10) // 10 tokens = max 10 at once
+for _, t := range tasks {
+	sem <- struct{}{}          // acquire (blocks when full)
+	go func(t Task) {
+		defer func() { <-sem }() // release
+		run(t)
+	}(t)
+}</code></pre></div>
+      <h4>⚠ Gotchas they probe</h4>
+      <div class="gotchas"><ul>
+        <li>Forget to <code>close</code> the results channel and the collector's <code>range</code> hangs forever → deadlock.</li>
+        <li>Close results too early (before workers finish) and you get a send-on-closed panic.</li>
+        <li>Unbounded "one goroutine per item" can exhaust memory or hammer a downstream — bound it with a pool or semaphore.</li>
+      </ul></div>
+      <h4>Interview Q&amp;A</h4>
+      <div class="qa">
+        <details class="flip"><summary>How do you limit concurrency to N?</summary><div class="ans">Three idiomatic options: a <b>worker pool</b> (N goroutines ranging a jobs channel), a <b>semaphore</b> (a buffered channel of N tokens you acquire/release), or <code>errgroup.Group</code> with <code>SetLimit(N)</code>. All cap how many run at once; choose by whether you also need result collection or error propagation.</div></details>
+        <details class="flip"><summary>How do you collect results from many goroutines safely?</summary><div class="ans">Send them into a results channel, and have a separate goroutine do <code>wg.Wait(); close(out)</code>. Then <code>range</code> the results channel in the collector — it ends cleanly when every worker is done. The key is that the <b>closer</b> is separate from the producers.</div></details>
+        <details class="flip"><summary>errgroup vs WaitGroup?</summary><div class="ans"><code>errgroup</code> (golang.org/x/sync) is a WaitGroup that also <b>propagates the first error</b>, <b>cancels a shared context</b> when any goroutine fails, and (with <code>SetLimit</code>) <b>bounds concurrency</b>. It's the default for fan-out where any call can fail.</div></details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ RACES ============ -->
+  <section class="section" id="races" style="--tint:var(--rose)" data-kw="race data race deadlock detect -race happens before memory model livelock">
+    <div class="sec-head"><h2><span class="sn">7</span> Races &amp; deadlocks</h2><span class="whisper">the two failure modes of concurrent code</span></div>
+    <div class="note">
+      <p class="oneliner">A <strong>race</strong> is unsynchronized shared access (undefined behavior); a <strong>deadlock</strong> is goroutines waiting on each other forever.</p>
+      <h4>How it works</h4>
+      <p>A <strong>data race</strong>: two goroutines touch the same memory, at least one writes, with no happens-before ordering between them → the result is undefined. A <strong>deadlock</strong>: every goroutine is blocked. Go detects the <em>total</em> case (all goroutines asleep) and aborts with <code>fatal error: all goroutines are asleep - deadlock!</code>; a <em>partial</em> deadlock just hangs. Detect races with <code>go test -race</code> / <code>go run -race</code>, which instruments memory accesses.</p>
+      <div class="codebox"><pre><code>// DATA RACE — n++ is read-modify-write; interleavings lose updates
+n := 0
+for i := 0; i < 1000; i++ {
+	go func() { n++ }()   // -race flags this; final n < 1000
+}
+
+// DEADLOCK — unbuffered send, nobody receiving
+ch := make(chan int)
+ch <- 1                   // fatal error: all goroutines asleep</code></pre></div>
+      <h4>⚠ Gotchas they probe</h4>
+      <div class="gotchas"><ul>
+        <li><code>-race</code> only catches races on paths your test actually exercises — weak tests + <code>-race</code> = false confidence.</li>
+        <li>Classic deadlock: acquiring two mutexes in different orders in different goroutines. Fix: a single global lock order.</li>
+        <li>Classic leak-not-deadlock: a goroutine blocked on a channel nobody will read — the program keeps running but bleeds goroutines.</li>
+      </ul></div>
+      <h4>Interview Q&amp;A</h4>
+      <div class="qa">
+        <details class="flip"><summary>What exactly is a data race?</summary><div class="ans">Two goroutines access the same variable concurrently, <b>at least one is a write</b>, and there's no synchronization (no happens-before relationship) ordering them. The Go memory model calls the result <b>undefined</b> — not "the wrong number," but genuinely unpredictable, including torn reads.</div></details>
+        <details class="flip"><summary>How do you detect and fix races?</summary><div class="ans">Detect with the <b>race detector</b>: <code>go test -race ./...</code> (run it in CI). It instruments memory accesses and reports the two conflicting stacks. Fix by adding synchronization — a <code>Mutex</code>, an <code>atomic</code> type, or by handing the data through a channel so only one goroutine owns it at a time.</div></details>
+        <details class="flip"><summary>How do you prevent deadlocks with multiple locks?</summary><div class="ans">Always acquire locks in a <b>consistent global order</b> across the whole program. Deadlock needs a cycle in the "who waits for whom" graph; a fixed ordering makes a cycle impossible. Also: keep critical sections short and never block (I/O) while holding a lock.</div></details>
+        <details class="flip"><summary>What triggers "fatal error: all goroutines are asleep"?</summary><div class="ans">The runtime detects that <b>every</b> goroutine is blocked — nobody can make progress — so it aborts rather than hang. Common cause: an unbuffered channel send/receive with no counterpart, or a <code>WaitGroup.Wait()</code> whose count never reaches zero because a <code>Done()</code> was missed.</div></details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PRACTICE ============ -->
+  <section class="section" id="practice" data-kw="practice problems exercise quiz predict spot bug write">
+    <div class="sec-head"><h2><span class="sn">P</span> Practice arena</h2><span class="whisper">solve, flip to check, then send me your answers to grade</span></div>
+    <div class="parena">
+
+      <div class="ptype">🔮 Predict the output <small>— read carefully, commit to an answer, then reveal</small></div>
+
+      <article class="prob" data-kw="loop variable closure goroutine 1.22 predict">
+        <div class="phead"><span class="pid">C1</span><span class="ptitle">Loop variable capture</span><span class="diff warm">Warm-up</span></div>
+        <p class="task">What does this print on <strong>Go 1.22+</strong>, and what would it have printed before 1.22?</p>
+        <div class="codebox"><pre><code>func main() {
+	var wg sync.WaitGroup
+	got := make([]int, 3)
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); got[i] = i }()
+	}
+	wg.Wait()
+	fmt.Println(got)
+}</code></pre></div>
+        <details class="sol"><summary>Reveal answer</summary><div class="solbody">
+          <p><strong>Go 1.22+:</strong> <code>[0 1 2]</code>. <strong>Before 1.22:</strong> typically <code>[3 3 3]</code> (often with an out-of-range panic risk), because all goroutines closed over the <em>same</em> <code>i</code>, which had reached 3 by the time they ran.</p>
+          <p>Go 1.22 changed loop semantics so <code>i</code> is a <strong>fresh variable per iteration</strong>. This is a favourite interview question precisely because the answer flipped — knowing the version boundary shows you're current.</p>
+          <div class="termout"><span class="pr">$</span> go run ./c1
+[0 1 2]</div>
+        </div></details>
+      </article>
+
+      <article class="prob" data-kw="buffered channel order predict">
+        <div class="phead"><span class="pid">C2</span><span class="ptitle">Buffered order</span><span class="diff warm">Warm-up</span></div>
+        <p class="task">Output?</p>
+        <div class="codebox"><pre><code>ch := make(chan int, 2)
+ch <- 1
+ch <- 2
+fmt.Println(<-ch, <-ch)</code></pre></div>
+        <details class="sol"><summary>Reveal answer</summary><div class="solbody">
+          <p><code>1 2</code>. A channel is FIFO — two sends into a buffer of 2 (never blocking), then two receives in the same order.</p>
+          <div class="termout"><span class="pr">$</span> go run ./c2
+1 2</div>
+        </div></details>
+      </article>
+
+      <article class="prob" data-kw="closed channel receive ok zero predict">
+        <div class="phead"><span class="pid">C3</span><span class="ptitle">Receiving after close</span><span class="diff warm">Warm-up</span></div>
+        <p class="task">Output of both prints?</p>
+        <div class="codebox"><pre><code>ch := make(chan int, 1)
+ch <- 42
+close(ch)
+v, ok := <-ch; fmt.Println(v, ok)
+v, ok = <-ch;  fmt.Println(v, ok)</code></pre></div>
+        <details class="sol"><summary>Reveal answer</summary><div class="solbody">
+          <p><code>42 true</code> then <code>0 false</code>. Closing doesn't discard buffered values — the first receive drains the <code>42</code> (<code>ok=true</code>); once empty and closed, receives return the zero value with <code>ok=false</code>, without blocking.</p>
+          <div class="termout"><span class="pr">$</span> go run ./c3
+42 true
+0 false</div>
+        </div></details>
+      </article>
+
+      <div class="ptype">🐛 Spot the bug <small>— name the bug, then say how you'd fix it</small></div>
+
+      <article class="prob" data-kw="deadlock unbuffered send spot bug">
+        <div class="phead"><span class="pid">C4</span><span class="ptitle">The hang</span><span class="diff core">Core</span></div>
+        <p class="task">What happens when you run this, and why?</p>
+        <div class="codebox"><pre><code>func main() {
+	ch := make(chan int)
+	ch <- 1
+	fmt.Println(<-ch)
+}</code></pre></div>
+        <details class="sol"><summary>Reveal answer</summary><div class="solbody">
+          <p><strong>Deadlock.</strong> The channel is unbuffered, so <code>ch &lt;- 1</code> blocks until a receiver is ready — but the only goroutine is stuck on that very send, so the receive on the next line never runs. The runtime detects all goroutines are blocked and aborts.</p>
+          <p><strong>Fix:</strong> either buffer it (<code>make(chan int, 1)</code>), or do the send in a separate goroutine (<code>go func(){ ch &lt;- 1 }()</code>) so a receiver can run.</p>
+          <div class="termout"><span class="pr">$</span> go run ./c4
+fatal error: all goroutines are asleep - deadlock!</div>
+        </div></details>
+      </article>
+
+      <article class="prob" data-kw="data race counter mutex atomic spot bug">
+        <div class="phead"><span class="pid">C5</span><span class="ptitle">The disappearing increments</span><span class="diff core">Core</span></div>
+        <p class="task">This should print 1000. It doesn't, and it's not even deterministic. Diagnose and fix.</p>
+        <div class="codebox"><pre><code>var wg sync.WaitGroup
+counter := 0
+for i := 0; i < 1000; i++ {
+	wg.Add(1)
+	go func() { defer wg.Done(); counter++ }()
+}
+wg.Wait()
+fmt.Println(counter)</code></pre></div>
+        <details class="sol"><summary>Reveal answer</summary><div class="solbody">
+          <p><strong>Data race.</strong> <code>counter++</code> is read-modify-write; two goroutines read the same value, both add one, both write it back — one increment lost. Final value is <code>&lt; 1000</code> and varies run to run.</p>
+          <p><strong>Fix:</strong> a <code>sync.Mutex</code> around <code>counter++</code>, or make it an <code>atomic.Int64</code> and call <code>counter.Add(1)</code>. Confirm with <code>go run -race</code>.</p>
+          <div class="termout"><span class="pr">$</span> go run -race ./c5
+<span class="cm">==================
+WARNING: DATA RACE</span>
+<span class="cm"># and the count prints e.g. 973, 981 — never reliably 1000</span></div>
+        </div></details>
+      </article>
+
+      <article class="prob" data-kw="goroutine leak timeout channel spot bug">
+        <div class="phead"><span class="pid">C6</span><span class="ptitle">The slow leak</span><span class="diff core">Core</span></div>
+        <p class="task">Called under load, this quietly eats memory. Where's the leak, and how do you close it?</p>
+        <div class="codebox"><pre><code>func leaky() int {
+	ch := make(chan int)
+	go func() { ch <- expensive() }() // sends result
+	select {
+	case v := <-ch:
+		return v
+	case <-time.After(10 * time.Millisecond):
+		return -1                     // timed out
+	}
+}</code></pre></div>
+        <details class="sol"><summary>Reveal answer</summary><div class="solbody">
+          <p><strong>Goroutine leak.</strong> When the timeout wins, <code>leaky()</code> returns — but the inner goroutine is now stuck forever on <code>ch &lt;- expensive()</code>, because the channel is unbuffered and nobody will ever receive. Every timed-out call strands one goroutine.</p>
+          <p><strong>Fix:</strong> make the channel <strong>buffered</strong> (<code>make(chan int, 1)</code>) so the sender can deposit its result and exit even after the receiver has moved on. (A ctx-aware version passes cancellation to <code>expensive</code> too.)</p>
+          <div class="termout"><span class="cm"># the buggy version, called 100 times:</span>
+<span class="pr">$</span> go run ./c6
+leaked goroutines still alive: 100</div>
+        </div></details>
+      </article>
+
+      <article class="prob" data-kw="waitgroup add inside goroutine race spot bug">
+        <div class="phead"><span class="pid">C7</span><span class="ptitle">The premature Wait</span><span class="diff core">Core</span></div>
+        <p class="task">Sometimes this waits for all three, sometimes it returns instantly having waited for none. Why?</p>
+        <div class="codebox"><pre><code>var wg sync.WaitGroup
+for i := 0; i < 3; i++ {
+	go func() {
+		wg.Add(1)          // <-- here
+		defer wg.Done()
+		doWork()
+	}()
+}
+wg.Wait()</code></pre></div>
+        <details class="sol"><summary>Reveal answer</summary><div class="solbody">
+          <p><strong><code>Add</code> is inside the goroutine.</strong> <code>wg.Wait()</code> can run before any goroutine has scheduled and called <code>Add</code> — so the counter is still 0 and <code>Wait</code> returns immediately, not waiting for the work. It's also a race on the WaitGroup counter.</p>
+          <p><strong>Fix:</strong> call <code>wg.Add(1)</code> in the loop, <em>before</em> <code>go</code>. Rule: Add happens in the parent, Done in the child.</p>
+        </div></details>
+      </article>
+
+      <div class="ptype">✍️ Write it <small>— implement it yourself, then compare with a verified solution</small></div>
+
+      <article class="prob" data-kw="worker pool implement write bounded">
+        <div class="phead"><span class="pid">C8</span><span class="ptitle">Bounded worker pool</span><span class="diff core">Core</span></div>
+        <p class="task">Implement <code>workerPool(jobs []int, workers int) []int</code> that runs <code>process(j)=j*j</code> across exactly <code>workers</code> goroutines and returns all results. (Order doesn't matter — sort before returning if you like.)</p>
+        <details class="sol"><summary>Reveal a verified solution</summary><div class="solbody">
+          <div class="codebox"><pre><code>func workerPool(jobs []int, workers int) []int {
+	in, out := make(chan int), make(chan int)
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); for j := range in { out <- j*j } }()
+	}
+	go func() { for _, j := range jobs { in <- j }; close(in) }()
+	go func() { wg.Wait(); close(out) }()   // the crucial part
+	var res []int
+	for r := range out { res = append(res, r) }
+	sort.Ints(res)
+	return res
+}</code></pre></div>
+          <p>Key move: a <strong>separate</strong> goroutine does <code>wg.Wait(); close(out)</code> so the collector's <code>range out</code> terminates. Closing <code>out</code> inline would race the workers.</p>
+          <div class="termout"><span class="pr">$</span> go run ./c8   <span class="cm"># workerPool([1,2,3,4,5], 3)</span>
+[1 4 9 16 25]</div>
+        </div></details>
+      </article>
+
+      <article class="prob" data-kw="run with timeout context implement write">
+        <div class="phead"><span class="pid">C9</span><span class="ptitle">Run with timeout</span><span class="diff core">Core</span></div>
+        <p class="task">Implement <code>runWithTimeout(ctx, fn func() int) (int, error)</code>: return <code>fn</code>'s result, or <code>ctx.Err()</code> if the context fires first. Bonus: don't leak the goroutine when it times out.</p>
+        <details class="sol"><summary>Reveal a verified solution</summary><div class="solbody">
+          <div class="codebox"><pre><code>func runWithTimeout(ctx context.Context, fn func() int) (int, error) {
+	done := make(chan int, 1)          // buffered! sender never blocks → no leak
+	go func() { done <- fn() }()
+	select {
+	case v := <-done:
+		return v, nil
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	}
+}</code></pre></div>
+          <p>The <strong>buffered</strong> channel is the anti-leak trick (same lesson as C6): on timeout, <code>fn</code>'s goroutine still deposits its result into the 1-slot buffer and exits cleanly instead of blocking forever.</p>
+          <div class="termout"><span class="pr">$</span> go run ./c9
+<span class="cm"># fn sleeps 200ms, ctx times out at 50ms:</span>
+0 true       <span class="cm"># errors.Is(err, context.DeadlineExceeded)</span>
+<span class="cm"># fn returns instantly, no timeout:</span>
+7 &lt;nil&gt;</div>
+        </div></details>
+      </article>
+
+      <article class="prob" data-kw="fan in merge channels implement write challenge">
+        <div class="phead"><span class="pid">C10</span><span class="ptitle">Fan-in merge</span><span class="diff chal">Challenge</span></div>
+        <p class="task">Implement <code>merge(cs ...&lt;-chan int) &lt;-chan int</code> that combines several input channels into one, closing the output only after every input is drained.</p>
+        <details class="sol"><summary>Reveal a verified solution</summary><div class="solbody">
+          <div class="codebox"><pre><code>func merge(cs ...<-chan int) <-chan int {
+	out := make(chan int)
+	var wg sync.WaitGroup
+	for _, c := range cs {
+		wg.Add(1)
+		go func(c <-chan int) {        // pass c in (pre-1.22 habit, still clear)
+			defer wg.Done()
+			for v := range c { out <- v }
+		}(c)
+	}
+	go func() { wg.Wait(); close(out) }()
+	return out
+}</code></pre></div>
+          <p>One forwarding goroutine per input; a WaitGroup tracks them; a closer goroutine shuts <code>out</code> when all inputs are exhausted. Same "separate closer" structure as the worker pool.</p>
+          <div class="termout"><span class="pr">$</span> go run ./c10  <span class="cm"># merge(gen(1,2,3), gen(4,5,6)), then sorted</span>
+[1 2 3 4 5 6]</div>
+        </div></details>
+      </article>
+
+      <article class="prob" data-kw="bounded parallelism semaphore order preserve implement write challenge">
+        <div class="phead"><span class="pid">C11</span><span class="ptitle">Bounded parallel map, order preserved</span><span class="diff chal">Challenge</span></div>
+        <p class="task">Implement <code>parallelMap(in []int, limit int, f func(int) int) []int</code>: apply <code>f</code> to every element with at most <code>limit</code> running at once, returning results in <strong>input order</strong>. (This one has a neat trick that avoids any lock.)</p>
+        <details class="sol"><summary>Reveal a verified solution</summary><div class="solbody">
+          <div class="codebox"><pre><code>func parallelMap(in []int, limit int, f func(int) int) []int {
+	out := make([]int, len(in))
+	sem := make(chan struct{}, limit)   // token bucket = concurrency cap
+	var wg sync.WaitGroup
+	for i, v := range in {
+		wg.Add(1)
+		sem <- struct{}{}               // acquire (blocks when `limit` busy)
+		go func(i, v int) {
+			defer wg.Done()
+			defer func() { <-sem }()    // release
+			out[i] = f(v)               // distinct index per goroutine → no race
+		}(i, v)
+	}
+	wg.Wait()
+	return out
+}</code></pre></div>
+          <p>The trick: each goroutine writes to its <strong>own index</strong> of a pre-sized slice. Different indices are different memory, so there's no data race and no mutex needed — and order is preserved for free. <code>go run -race</code> confirms it's clean.</p>
+          <div class="termout"><span class="pr">$</span> go run -race ./c11  <span class="cm"># parallelMap([1..6], 2, *10)</span>
+[10 20 30 40 50 60]</div>
+        </div></details>
+      </article>
+
+      <article class="prob" data-kw="rate limiter design open challenge submit">
+        <div class="phead"><span class="pid">C12</span><span class="ptitle">Design: a per-user rate limiter</span><span class="diff chal">Challenge · no spoiler</span></div>
+        <p class="task">Design (sketch the types + concurrency plan, code optional) a <strong>rate limiter</strong> for an API: allow each user at most <strong>N requests per second</strong>, safe under heavy concurrent traffic. Consider: what data structure holds per-user state, what guards it, how you avoid it growing forever, and how you'd bound lock contention. <strong>No solution shown — send me your design and I'll review it.</strong></p>
+      </article>
+
+      <div class="submit">
+        <b>📬 How to get graded:</b> pick any problem, write your answer, and send it to me here as <code>C7: [your answer]</code> (or paste your code for the write-it ones). I'll evaluate correctness, point out races/leaks/edge cases you missed, rate it, and give the idiomatic version. Do <strong>C12</strong> especially — open design questions are where senior interviews are won or lost. Want a fresh batch after these? Just say <em>"more concurrency problems."</em>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <p class="paw">Module 5 of 24 · Concurrency 🧠</p>
+    <p>Back to <a href="./">Basics</a> · <a href="advanced.html">Advanced</a> · <a href="programs.html">Runnable programs</a> · press <b>/</b> to search</p>
+  </footer>
+</main>
+
+<script>
+/* Go highlighter (scoped to code blocks) */
+(function () {
+  const KW=/\b(package|import|func|return|var|const|type|struct|interface|map|chan|go|defer|select|switch|case|default|if|else|for|range|break|continue|fallthrough|goto)\b/g;
+  const TY=/\b(string|int|int64|float64|bool|byte|rune|error|any|nil|true|false|iota|make|new|len|cap|append|copy|delete|close|panic|recover)\b/g;
+  document.querySelectorAll('.codebox pre code').forEach(el=>{
+    let s=el.textContent.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const parts=s.split(/((?:\/\/[^\n]*)|(?:"(?:[^"\\\n]|\\.)*")|(?:`[^`]*`))/);
+    el.innerHTML=parts.map((p,i)=>{
+      if(i%2) return p.startsWith('//')?'<span class="c">'+p+'</span>':'<span class="s">'+p+'</span>';
+      return p.replace(KW,'<span class="k">$1</span>').replace(TY,'<span class="t">$1</span>').replace(/\b(\d+(?:\.\d+)?)\b/g,'<span class="n">$1</span>');
+    }).join('');
+  });
+})();
+
+/* copy buttons */
+document.querySelectorAll('.codebox').forEach(box=>{
+  const b=document.createElement('button');b.className='copy';b.textContent='copy';b.setAttribute('aria-label','Copy code');
+  b.addEventListener('click',()=>navigator.clipboard.writeText(box.querySelector('pre').textContent).then(()=>{
+    b.textContent='copied ✓';b.classList.add('done');setTimeout(()=>{b.textContent='copy';b.classList.remove('done')},1400);
+  }));
+  box.appendChild(b);
+});
+
+/* search */
+const q=document.getElementById('q'),hits=document.getElementById('hits');
+const sections=[...document.querySelectorAll('.section')];
+const units=[...document.querySelectorAll('.note, .prob, .parena .ptype')];
+function filter(){
+  const t=q.value.trim().toLowerCase();
+  sections.forEach(sec=>{
+    const hay=(sec.dataset.kw||'')+' '+sec.textContent.toLowerCase();
+    sec.classList.toggle('hidden', !!t && !hay.includes(t));
+  });
+  const shown=sections.filter(s=>!s.classList.contains('hidden')).length;
+  hits.textContent=t?shown+' section'+(shown===1?'':'s'):'';
+}
+q.addEventListener('input',filter);
+q.addEventListener('keydown',e=>{if(e.key==='Escape'){q.value='';filter();q.blur();}});
+document.addEventListener('keydown',e=>{if(e.key==='/'&&document.activeElement!==q){e.preventDefault();q.focus();}});
+
+/* active nav chip on scroll */
+const chips=[...document.querySelectorAll('.chip[href^="#"]')];
+const byId=Object.fromEntries(chips.map(c=>[c.getAttribute('href').slice(1),c]));
+const spy=new IntersectionObserver(es=>es.forEach(en=>{
+  if(en.isIntersecting){chips.forEach(c=>c.classList.remove('active'));(byId[en.target.id]||{}).classList?.add('active');}
+}),{rootMargin:'-25% 0px -70% 0px'});
+sections.forEach(s=>spy.observe(s));
+</script>
+</body>
+</html>
