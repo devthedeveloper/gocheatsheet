@@ -1,8 +1,6 @@
-decoded request: {ID:0 UserID:7 Items:[boat-airdopes] Coupon:}
+decoded request: {ID:0 UserID:7 Item:boat-airdopes Coupon:}
 {
-  "id": 1042,
+  "id": 1,
   "user_id": 7,
-  "items": [
-    "boat-airdopes"
-  ]
+  "item": "boat-airdopes"
 }

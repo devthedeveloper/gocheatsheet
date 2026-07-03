@@ -1,2 +1,2 @@
-hit: cart:42 → 3 items (cache)
+hit: 3 items (cache)
 responded within the 100ms budget ✓

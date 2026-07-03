@@ -308,10 +308,12 @@ footer a{color:var(--c-back)}
       <span class="eyebrow">Team cheat sheet · Runnable edition · Go 1.25</span>
       <h1>Don't just read Go — <span class="hl a">run it</span> and <span class="hl b">break it</span></h1>
       <p class="sub">Twelve complete programs, each one a task off a backend dev's
-      daily list — welcome emails, a dashboard endpoint, wallet cashback, checkout.
-      Every terminal output below is <em>real</em>, captured from an actual run —
-      including the race that makes ₹44,546 vanish from a wallet. Copy one, run it,
-      then change something and see what happens.</p>
+      daily list — real SMTP mail, real MySQL queries, a real slow query getting
+      cancelled. No <code>time.Sleep("fake work")</code> anywhere: every email really
+      sends (to a local MailHog inbox — swap the host for
+      <code>smtp.sendgrid.net</code> and it's production SendGrid), every query really
+      runs against MySQL. Every output below is what actually printed. Copy one, run
+      it, then change something and see what happens.</p>
       <div class="searchrow">
         <label class="search">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4b6b5c" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -325,130 +327,185 @@ footer a{color:var(--c-back)}
 
   <!-- ================= CONCURRENCY LAB ================= -->
   <section class="section" id="concurrency" style="--tint:var(--c-conc)">
-    <div class="sec-head"><h2>Concurrency lab</h2><span class="whisper">eight programs, in order — each is a real task, each builds on the one before</span></div>
+    <div class="sec-head"><h2>Concurrency lab</h2><span class="whisper">eight programs, in order — real SMTP, real MySQL, no simulators</span></div>
     <div class="grid">
 
-      <div class="clone" data-kw="clone repo run git setup install">
+      <div class="clone" data-kw="clone repo run git setup install docker mailhog mysql">
         <h3>Run them yourself</h3>
         <div class="codebox"><pre><code>git clone https://github.com/devthedeveloper/gocheatsheet
 cd gocheatsheet/programs
-go run ./01-goroutines     # each folder is one program
-go run -race ./03-mutex    # extra credit: watch Go catch the race</code></pre></div>
+
+# real infra these programs actually talk to:
+docker run -d --name mailhog -p 1025:1025 -p 8025:8025 mailhog/mailhog
+docker run -d --name mysql-demo -e MYSQL_ROOT_PASSWORD=secret \
+  -e MYSQL_DATABASE=notes -p 3306:3306 mysql:8
+
+go run ./01-goroutines          # check http://localhost:8025 for the real emails
+go run -race ./03-mutex         # extra credit: watch Go catch the race</code></pre></div>
       </div>
 
-      <article class="card" data-kw="goroutine go keyword concurrent email smtp send parallel main dies exit">
+      <article class="card" data-kw="goroutine go keyword concurrent email smtp sendgrid mailhog send parallel main dies exit real">
         <h3><span class="num">01</span> goroutines <span class="tag">start here</span></h3>
-        <p class="what">Three users signed up — three welcome emails go out at the same time.</p>
-        <p class="eli"><b>💡 Everyday version:</b> <code>go sendEmail(…)</code> is hiring a helper: they start dialling SMTP immediately while you carry on. But <code>main</code> is the shop owner — when the owner locks up, every helper goes home mid-call. (Your HTTP server does this hiring for you on every request.)</p>
-        <div class="codebox"><pre><code>// goroutines: three signup emails, sent at the same time.
+        <p class="what">Three users signed up — three welcome emails go out over <b>real SMTP</b>, at the same time.</p>
+        <p class="eli"><b>💡 Everyday version:</b> <code>go func(){ done &lt;- sendEmail(u) }()</code> is hiring a helper: they start the real SMTP handshake (EHLO, MAIL FROM, RCPT TO, DATA) immediately while you carry on. But <code>main</code> is the shop owner — when the owner locks up, every helper stops mid-call. (Your HTTP server hires these helpers for you, on every request.)</p>
+        <div class="codebox"><pre><code>// goroutines: three real welcome emails, sent over real SMTP, concurrently.
+//
+// Points at a local MailHog container (a real SMTP server for dev/test):
+//   docker run -d --name mailhog -p 1025:1025 -p 8025:8025 mailhog/mailhog
+// In production you'd point Host/Port at smtp.sendgrid.net:587 and auth
+// with "apikey" / your SendGrid API key — net/smtp doesn't change at all.
 package main
 
 import (
 	"fmt"
-	"time"
+	"net/smtp"
 )
 
-func sendEmail(to string) {
-	fmt.Println("connecting to SMTP for", to)
-	time.Sleep(150 * time.Millisecond) // SMTP round-trip
-	fmt.Println("✉️  delivered to", to)
+func sendEmail(to string) error {
+	msg := []byte("To: " + to + "\r\n" +
+		"Subject: Welcome!\r\n\r\n" +
+		"Thanks for signing up.\r\n")
+	// a REAL SMTP conversation: connect, EHLO, MAIL FROM,
+	// RCPT TO, DATA — over an actual TCP socket to port 1025
+	return smtp.SendMail("localhost:1025", nil,
+		"noreply@example.com", []string{to}, msg)
 }
 
 func main() {
-	// three users just signed up
-	go sendEmail("asha@example.com")
-	go sendEmail("ravi@example.com")
-
-	sendEmail("meera@example.com") // main sends one too —
-	// which keeps the program alive long enough
-
-	// when main returns, ALL goroutines die.
-	// make main's send a `go` too and the program
-	// exits instantly: zero emails delivered.
-}</code></pre></div>
-                <details class="lbl"><summary>📖 Line by line — what &amp; why</summary>
-          <div class="ln"><code>func sendEmail(to string) {</code><p><b>What:</b> an ordinary function that takes a recipient. <b>Why:</b> goroutines run plain functions — nothing special is needed to make a function “concurrency-ready”.</p></div>
-          <div class="ln"><code>fmt.Println("connecting to SMTP for", to)</code><p><b>What:</b> logs BEFORE the slow part starts. <b>Why:</b> so the output can prove all three connections opened together, before any email finished.</p></div>
-          <div class="ln"><code>time.Sleep(150 * time.Millisecond)</code><p><b>What:</b> pauses this goroutine for 150ms, standing in for the SMTP network round-trip. <b>Why:</b> a real email send takes roughly this long; Sleep keeps the demo runnable without a mail server. Only THIS goroutine sleeps — the others keep going.</p></div>
-          <div class="ln"><code>go sendEmail("asha@example.com")</code><p><b>What:</b> starts sendEmail in a NEW goroutine and moves to the next line immediately — the email is not sent yet. <b>Why:</b> so signup #2 never waits behind signup #1's email. <code>go</code> costs a few KB; firing thousands is normal.</p></div>
-          <div class="ln"><code>sendEmail("meera@example.com")</code><p><b>What:</b> main sends the third email itself — no <code>go</code> — so main is busy for ~150ms. <b>Why:</b> this is what keeps the program alive. When main returns, ALL goroutines are killed instantly; main being busy for 150ms gives the other two time to finish. Delete this call's work and zero emails go out.</p></div>
-        </details>
-        <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./01-goroutines
-connecting to SMTP for meera@example.com
-connecting to SMTP for ravi@example.com
-connecting to SMTP for asha@example.com
-✉️  delivered to asha@example.com
-✉️  delivered to ravi@example.com
-✉️  delivered to meera@example.com</pre></div>
-        <p class="use"><b>Notice:</b> all three SMTP connections opened together and finished ~150ms later — sequentially this would take 450ms. Make main’s send a <code>go</code> too and the program exits with zero emails delivered.</p>
-      </article>
-
-      <article class="card" data-kw="waitgroup wg add done wait dashboard aggregate services fan out">
-        <h3><span class="num">02</span> wg.Wait() <span class="tag">sync</span></h3>
-        <p class="what"><code>GET /dashboard</code> fans out to three services — and must respond only when ALL of them have answered.</p>
-        <p class="eli"><b>💡 Everyday version:</b> a WaitGroup is a tally on a whiteboard: <code>wg.Add(1)</code> = “one more call in flight”, <code>wg.Done()</code> = a call crossing itself off, <code>wg.Wait()</code> = you standing at the board, refusing to send the 200 until the tally reads zero.</p>
-        <ol class="how">
-        <li><b><code>wg.Add(1)</code> before <code>go</code></b> — write it on the board <em>before</em> the call leaves, or you might check the board while it still says 0 and respond with half a dashboard.</li>
-        <li><b><code>defer wg.Done()</code> first line inside</b> — the call crosses itself off however it ends, even on an error.</li>
-        <li><b><code>wg.Wait()</code> blocks</b> until the count is back to 0 — then, and only then, the response goes out.</li>
-        </ol>
-        <div class="codebox"><pre><code>// wg.Wait: GET /dashboard answers only after ALL services do.
-package main
-
-import (
-	"fmt"
-	"sync"
-	"time"
-)
-
-func call(service string, ms int) {
-	time.Sleep(time.Duration(ms) * time.Millisecond)
-	fmt.Printf("%s answered in %dms\n", service, ms)
-}
-
-func main() {
-	var wg sync.WaitGroup
-
-	// the dashboard needs three services
-	services := map[string]int{
-		"profile-service":       100,
-		"orders-service":        250,
-		"notifications-service": 180,
+	users := []string{
+		"asha@example.com",
+		"ravi@example.com",
+		"meera@example.com",
 	}
-	fmt.Println("GET /dashboard → calling 3 services…")
-	for name, latency := range services {
-		wg.Add(1) // one more call in flight
-		go func() {
-			defer wg.Done() // crossed off, always
-			call(name, latency)
+
+	done := make(chan error, len(users))
+	for _, u := range users {
+		go func() { // fires the real SMTP call concurrently
+			done <- sendEmail(u)
 		}()
 	}
 
-	wg.Wait() // block here until all three answer
-	fmt.Println("200 OK — response assembled ✓")
+	for range users {
+		if err := <-done; err != nil {
+			fmt.Println("send failed:", err)
+			continue
+		}
+		fmt.Println("✉️  delivered ✓")
+	}
 }</code></pre></div>
-                <details class="lbl"><summary>📖 Line by line — what &amp; why</summary>
-          <div class="ln"><code>var wg sync.WaitGroup</code><p><b>What:</b> creates the counter. Its zero value is ready to use — it starts at 0. <b>Why:</b> this counter will track “how many service calls are still in flight”. No initialization ceremony needed.</p></div>
-          <div class="ln"><code>services := map[string]int{ "profile-service": 100, … }</code><p><b>What:</b> the three services the dashboard needs, with their (simulated) response times. <b>Why:</b> stand-ins for real HTTP clients. The latencies differ on purpose — so the output can prove Wait waits for the slowest.</p></div>
-          <div class="ln"><code>wg.Add(1)</code><p><b>What:</b> counter goes 0→1→2→3: “one more call is in flight”. <b>Why:</b> it MUST happen before <code>go</code>, in the parent. If the goroutine did its own Add, main could reach Wait while the counter still reads 0 — and respond with half a dashboard.</p></div>
-          <div class="ln"><code>go func() {</code><p><b>What:</b> launches the service call in its own goroutine. <b>Why:</b> this is the fan-out: all three calls now overlap instead of queueing. 100+250+180ms of waiting becomes 250ms.</p></div>
-          <div class="ln"><code>defer wg.Done()</code><p><b>What:</b> schedules counter−1 for the moment this goroutine exits — any exit. <b>Why:</b> <code>defer</code> fires even if the call errors or panics. Without it, one failed call = a counter stuck above 0 = wg.Wait() hangs forever = your handler never responds.</p></div>
-          <div class="ln"><code>call(name, latency)</code><p><b>What:</b> the actual work. <b>Why:</b> in production this line is <code>http.Get(...)</code> or a gRPC call. Everything around it stays identical.</p></div>
-          <div class="ln"><code>wg.Wait()</code><p><b>What:</b> main STOPS at this line. It sleeps (zero CPU) until the counter is back to 0. <b>Why:</b> this is the “don't respond yet”. Each Done() ticks the counter down; the last one (orders-service at 250ms) releases main.</p></div>
-          <div class="ln"><code>fmt.Println("200 OK — response assembled ✓")</code><p><b>What:</b> runs only after every service has reported. <b>Why:</b> past Wait, it is GUARANTEED all three answered — safe to assemble the response from their data.</p></div>
+        <details class="lbl"><summary>📖 Line by line — what &amp; why</summary>
+          <div class="ln"><code>func sendEmail(to string) error {</code><p><b>What:</b> a real function that opens a real SMTP connection. <b>Why:</b> goroutines run plain functions — nothing special is needed to make a function "concurrency-ready".</p></div>
+          <div class="ln"><code>return smtp.SendMail("localhost:1025", nil, "noreply@example.com", []string{to}, msg)</code><p><b>What:</b> the stdlib does a REAL SMTP conversation over a real TCP socket: EHLO, MAIL FROM, RCPT TO, DATA. <b>Why:</b> MailHog listens on 1025 like any real mail server. In production, this exact line points at smtp.sendgrid.net:587 with an auth.PlainAuth — SendGrid speaks standard SMTP.</p></div>
+          <div class="ln"><code>done := make(chan error, len(users))</code><p><b>What:</b> a buffered channel — one slot per email — collects each goroutine's result. <b>Why:</b> buffered so a goroutine can drop its result and exit even if main hasn't read the previous one yet; nobody blocks waiting to hand off.</p></div>
+          <div class="ln"><code>go func() { done <- sendEmail(u) }()</code><p><b>What:</b> starts sendEmail in a NEW goroutine and moves to the next line immediately — the SMTP handshake for THIS user hasn't happened yet. <b>Why:</b> so signup #2's email never waits behind signup #1's. All three real SMTP connections open concurrently.</p></div>
+          <div class="ln"><code>for range users { if err := <-done; ... }</code><p><b>What:</b> main waits for exactly as many results as emails sent, printing each as it lands. <b>Why:</b> this is what keeps main alive long enough for the real network round-trips to finish — same job wg.Wait() does in the next program, just via a channel instead.</p></div>
         </details>
-        <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./02-waitgroup
-GET /dashboard → calling 3 services…
-profile-service answered in 100ms
-notifications-service answered in 180ms
-orders-service answered in 250ms
-200 OK — response assembled ✓</pre></div>
-        <p class="use"><b>Notice:</b> the 200 OK left at 250ms — the <em>slowest</em> service, not the 530ms sum. That difference is the whole reason to fan out.</p>
+        <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./01-goroutines
+✉️  delivered ✓
+✉️  delivered ✓
+✉️  delivered ✓</pre></div>
+        <p class="use"><b>Notice:</b> all 3 messages actually landed — <code>curl localhost:8025/api/v2/messages</code> against the real MailHog inbox showed <code>3 messages</code> with the right <code>To:</code> addresses. Point <code>smtp.SendMail</code> at <code>smtp.sendgrid.net:587</code> with your API key as the password and this exact code sends through SendGrid.</p>
       </article>
 
-      <article class="card" data-kw="mutex race data race wallet balance cashback money lock unlock lost updates">
+      <article class="card" data-kw="waitgroup wg add done wait dashboard aggregate services fan out mysql real queries">
+        <h3><span class="num">02</span> wg.Wait() <span class="tag">sync</span></h3>
+        <p class="what"><code>GET /dashboard</code> runs <b>3 real MySQL queries</b> concurrently — and must respond only when ALL of them have returned.</p>
+        <p class="eli"><b>💡 Everyday version:</b> a WaitGroup is a tally on a whiteboard: <code>wg.Add(1)</code> = “one more query in flight”, <code>wg.Done()</code> = a query crossing itself off, <code>wg.Wait()</code> = you standing at the board, refusing to send the 200 until the tally reads zero.</p>
+        <ol class="how">
+        <li><b><code>wg.Add(1)</code> before <code>go</code></b> — write it on the board <em>before</em> the query leaves, or you might check the board while it still says 0 and respond with half a dashboard.</li>
+        <li><b><code>defer wg.Done()</code> first line inside</b> — the query crosses itself off however it ends, even on a DB error.</li>
+        <li><b><code>wg.Wait()</code> blocks</b> until the count is back to 0 — then, and only then, the response goes out.</li>
+        </ol>
+        <div class="codebox"><pre><code>// wg.Wait: GET /dashboard runs 3 real MySQL queries concurrently,
+// then answers only once ALL three have returned.
+package main
+
+import (
+	"database/sql"
+	"fmt"
+	"sync"
+
+	_ "github.com/go-sql-driver/mysql"
+)
+
+func setup(db *sql.DB) {
+	db.Exec("DROP TABLE IF EXISTS orders, users")
+	db.Exec(`CREATE TABLE users (id INT PRIMARY KEY)`)
+	db.Exec(`CREATE TABLE orders (
+		id INT PRIMARY KEY, total_paisa INT)`)
+	for i := 1; i <= 500; i++ {
+		db.Exec("INSERT INTO users VALUES (?)", i)
+	}
+	for i := 1; i <= 1200; i++ {
+		db.Exec("INSERT INTO orders VALUES (?, ?)",
+			i, 19900+(i%5)*500)
+	}
+}
+
+func main() {
+	db, err := sql.Open("mysql",
+		"root:secret@tcp(localhost:3306)/notes")
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	setup(db) // seed data, so this file is rerunnable standalone
+
+	var (
+		wg                          sync.WaitGroup
+		userCount, orderCount       int
+		revenuePaisa                int64
+	)
+	fmt.Println("GET /dashboard → 3 real queries, in parallel…")
+
+	wg.Add(1) // one more query in flight
+	go func() {
+		defer wg.Done() // crossed off, always
+		db.QueryRow("SELECT COUNT(*) FROM users").
+			Scan(&userCount)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		db.QueryRow("SELECT COUNT(*) FROM orders").
+			Scan(&orderCount)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		db.QueryRow("SELECT COALESCE(SUM(total_paisa),0) " +
+			"FROM orders").Scan(&revenuePaisa)
+	}()
+
+	wg.Wait() // block here until all three queries return
+
+	fmt.Printf("users:   %d\n", userCount)
+	fmt.Printf("orders:  %d\n", orderCount)
+	fmt.Printf("revenue: ₹%.2f\n", float64(revenuePaisa)/100)
+	fmt.Println("200 OK — response assembled ✓")
+}</code></pre></div>
+        <details class="lbl"><summary>📖 Line by line — what &amp; why</summary>
+          <div class="ln"><code>var ( wg sync.WaitGroup; userCount, orderCount int; revenuePaisa int64 )</code><p><b>What:</b> the counter, plus the real variables each query will fill in. <b>Why:</b> this counter will track "how many queries are still in flight" — zero value ready, no setup needed.</p></div>
+          <div class="ln"><code>wg.Add(1)  (before each go func)</code><p><b>What:</b> counter goes 0→1→2→3: "one more real query is running". <b>Why:</b> it MUST happen before `go`, in the parent goroutine. If the query goroutine did its own Add, main could reach Wait while the counter still reads 0 — and respond before the query even started.</p></div>
+          <div class="ln"><code>go func() { defer wg.Done(); db.QueryRow("SELECT COUNT(*) FROM users").Scan(&userCount) }()</code><p><b>What:</b> fires a real query against MySQL in its own goroutine, and schedules the countdown for whenever it returns. <b>Why:</b> `defer wg.Done()` fires even if the query errors — a broken connection can't leave the counter stuck above 0, which would hang wg.Wait() forever.</p></div>
+          <div class="ln"><code>db.QueryRow(...).Scan(&revenuePaisa)</code><p><b>What:</b> runs a real aggregate query and copies the single result column into a real variable via a pointer. <b>Why:</b> three genuinely different SQL statements, three genuinely separate connections from the pool — this is real concurrent database load, not three prints pretending to be one.</p></div>
+          <div class="ln"><code>wg.Wait()</code><p><b>What:</b> main STOPS here. Zero CPU, until the counter is back to 0. <b>Why:</b> the slowest of the three real queries decides when this returns — same principle as network fan-out, just against a database instead of other services.</p></div>
+          <div class="ln"><code>fmt.Printf("revenue: ₹%.2f\n", ...)</code><p><b>What:</b> runs only after every query has actually returned real data. <b>Why:</b> past Wait, all three variables are GUARANTEED populated from the database — safe to assemble the dashboard response.</p></div>
+        </details>
+        <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./02-waitgroup
+GET /dashboard → 3 real queries, in parallel…
+users:   500
+orders:  1200
+revenue: ₹250800.00
+200 OK — response assembled ✓</pre></div>
+        <p class="use"><b>Notice:</b> <code>users: 500</code>, <code>orders: 1200</code>, <code>revenue: ₹250800.00</code> — real <code>COUNT(*)</code> and <code>SUM(...)</code> against real seeded tables, all three fired at once instead of one after another.</p>
+      </article>
+
+      <article class="card" data-kw="mutex race data race wallet balance cashback money lock unlock lost updates real">
         <h3><span class="num">03</span> mutex vs the wallet race <span class="tag">the big one</span></h3>
-        <p class="what">A cashback promo: 100 concurrent clients, 1,000 hits each, ₹1 per hit. Watch ₹44,546 vanish.</p>
+        <p class="what">A cashback promo: 100 concurrent clients, 1,000 hits each, ₹1 per hit. Watch real money vanish.</p>
         <p class="eli"><b>💡 Everyday version:</b> two requests read balance ₹500 at the same moment, both compute ₹501, both write ₹501 — one rupee gone. At scale that’s the 😱 line below. The mutex is the single bathroom key at a petrol station: <code>Lock()</code> takes the key, everyone queues, <code>Unlock()</code> hands it back. One goroutine touches the balance at a time.</p>
         <div class="codebox"><pre><code>// mutex: 100 concurrent clients earn ₹1 cashback per hit.
 package main
@@ -495,19 +552,18 @@ func main() {
 	fmt.Println("no mutex:  ₹", balance, "— money vanished 😱")
 	fmt.Println("mutex:     ₹", safe, "✓")
 }</code></pre></div>
-                <details class="lbl"><summary>📖 Line by line — what &amp; why</summary>
+        <details class="lbl"><summary>📖 Line by line — what &amp; why</summary>
           <div class="ln"><code>const clients, hits = 100, 1000</code><p><b>What:</b> 100 concurrent clients, each earning cashback 1,000 times. <b>Why:</b> enough volume that the race loses money on every run. Small numbers can get lucky and hide the bug — that's what makes races evil.</p></div>
           <div class="ln"><code>balance := 0</code><p><b>What:</b> one plain int, shared by all 100 goroutines. <b>Why:</b> sharing is the point — and sharing without protection is the bug we're about to watch.</p></div>
-          <div class="ln"><code>balance++</code><p><b>What:</b> looks like one step; is actually three: READ balance, ADD 1, WRITE it back. <b>Why:</b> two clients both read ₹500, both compute ₹501, both write ₹501 — two credits happened, balance moved by one. Repeat thousands of times: ₹44,546 gone.</p></div>
+          <div class="ln"><code>balance++</code><p><b>What:</b> looks like one step; is actually three: READ balance, ADD 1, WRITE it back. <b>Why:</b> two clients both read ₹500, both compute ₹501, both write ₹501 — two credits happened, balance moved by one. Repeat thousands of times: tens of thousands of rupees gone.</p></div>
           <div class="ln"><code>var mu sync.Mutex</code><p><b>What:</b> the lock. Zero value ready, like WaitGroup. <b>Why:</b> think: ONE bathroom key for the whole petrol station. It protects whatever you consistently lock around — here, the balance.</p></div>
-          <div class="ln"><code>mu.Lock()</code><p><b>What:</b> take the key — or stand in line until whoever has it gives it back. <b>Why:</b> from this line to Unlock, no other goroutine can be in this section. read-add-write becomes one uninterruptible turn.</p></div>
+          <div class="ln"><code>mu.Lock()</code><p><b>What:</b> take the key — or stand in line until whoever has it gives it back. <b>Why:</b> from this line to Unlock, no other goroutine can be in this section. Read-add-write becomes one uninterruptible turn.</p></div>
           <div class="ln"><code>safe++</code><p><b>What:</b> the same three steps as before — <b>Why:</b> — but now nobody can interleave with them. Every credit lands.</p></div>
           <div class="ln"><code>mu.Unlock()</code><p><b>What:</b> hand the key back immediately. <b>Why:</b> keep the locked section as short as possible: everything inside it runs one-goroutine-at-a-time, so a fat locked section becomes your bottleneck.</p></div>
-          <div class="ln"><code>wg.Wait()  (before printing)</code><p><b>What:</b> wait until every client is done before reading the totals. <b>Why:</b> reading balance while writers are still running would itself be a race — you'd print a number mid-flight.</p></div>
         </details>
         <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./03-mutex
 should be: ₹ 100000
-no mutex:  ₹ 55454 — money vanished 😱
+no mutex:  ₹ 57307 — money vanished 😱
 mutex:     ₹ 100000 ✓
 <span class="dim"># balance++ is really: read, add 1, write —
 # two clients interleave those steps and one
@@ -515,284 +571,400 @@ mutex:     ₹ 100000 ✓
         <p class="use"><b>Extra credit:</b> <code>go run -race ./03-mutex</code> — Go names the exact racing line. This bug passes code review constantly; <code>-race</code> in CI is what actually catches it.</p>
       </article>
 
-      <article class="card" data-kw="channel send receive close range upload scanner pipeline hand off">
+      <article class="card" data-kw="channel send receive close range upload hash sha256 disk file real pipeline hand off">
         <h3><span class="num">04</span> channels <span class="tag">pipes</span></h3>
-        <p class="what">An upload endpoint hands finished files to a virus scanner — hand to hand.</p>
-        <p class="eli"><b>💡 Everyday version:</b> the channel is the hatch between two desks. Unbuffered means hand-to-hand: the upload goroutine stands there holding <code>invoice_jan.pdf</code> until the scanner takes it. That’s why the output alternates instead of uploading everything first.</p>
-        <div class="codebox"><pre><code>// channels: uploaded files handed to the virus scanner.
+        <p class="what">Uploaded files, checksummed as they land — <b>real disk writes, real SHA-256</b>, hand to hand.</p>
+        <p class="eli"><b>💡 Everyday version:</b> the channel is the hatch between two desks. Unbuffered means hand-to-hand: the upload goroutine stands there holding the open <code>invoice_jan.pdf</code> until the hasher takes it. That’s why the output alternates instead of uploading everything first.</p>
+        <div class="codebox"><pre><code>// channels: uploaded files, checksummed as they land — hand to hand.
 package main
 
-import "fmt"
+import (
+	"crypto/sha256"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+)
 
 func main() {
-	uploads := make(chan string) // the hand-off point
+	dir, _ := os.MkdirTemp("", "uploads")
+	defer os.RemoveAll(dir)
 
-	go func() { // goroutine A: the upload receiver
-		files := []string{
-			"invoice_jan.pdf",
-			"invoice_feb.pdf",
-			"salary_slip.pdf",
+	uploads := make(chan string) // the hand-off point: file paths
+
+	go func() { // goroutine A: receives the uploads
+		docs := map[string]string{
+			"invoice_jan.pdf": "invoice January contents",
+			"invoice_feb.pdf": "invoice February contents",
+			"salary_slip.pdf": "salary slip contents",
 		}
-		for _, f := range files {
-			fmt.Println("upload complete:", f)
-			uploads <- f // hand to the scanner
+		for name, body := range docs {
+			path := filepath.Join(dir, name)
+			os.WriteFile(path, []byte(body), 0o644) // REAL disk write
+			fmt.Println("upload complete:", name)
+			uploads <- path // hand the real file to the hasher
 		}
 		close(uploads) // no more uploads today
 	}()
 
-	for f := range uploads { // main: the scanner
-		fmt.Println("  virus-scanned:", f)
+	for path := range uploads { // main: hashes each real file
+		f, _ := os.Open(path)
+		h := sha256.New()
+		io.Copy(h, f) // REAL bytes read off disk, REAL hash computed
+		f.Close()
+		fmt.Printf("  sha256 %.12x  %s\n",
+			h.Sum(nil), filepath.Base(path))
 	}
 	fmt.Println("all uploads processed ✓")
 }</code></pre></div>
-                <details class="lbl"><summary>📖 Line by line — what &amp; why</summary>
-          <div class="ln"><code>uploads := make(chan string)</code><p><b>What:</b> creates a typed pipe. Capacity 0 — it holds nothing. <b>Why:</b> capacity 0 means every send is a live hand-off: the sender physically waits for a receiver. Nothing queues up invisibly.</p></div>
-          <div class="ln"><code>go func() { … }()</code><p><b>What:</b> the upload receiver runs in its own goroutine. <b>Why:</b> required with an unbuffered channel: sender and receiver must BOTH be running to meet. Doing both in one goroutine would deadlock on the first send.</p></div>
-          <div class="ln"><code>uploads <- f</code><p><b>What:</b> sends the filename into the channel — and BLOCKS until the scanner takes it. <b>Why:</b> this blocking is free backpressure: if the scanner is slow, uploads slow down automatically. Memory can't fill up with unscanned files.</p></div>
-          <div class="ln"><code>close(uploads)</code><p><b>What:</b> marks the channel “no more values coming”. <b>Why:</b> always the SENDER closes — only it knows when it's done. Closing is what lets the receiving loop end instead of waiting forever.</p></div>
-          <div class="ln"><code>for f := range uploads {</code><p><b>What:</b> receives values one by one until the channel is closed and drained. <b>Why:</b> the idiomatic consumer: no counting, no done-flags. Sender closes, loop ends, program moves on.</p></div>
+        <details class="lbl"><summary>📖 Line by line — what &amp; why</summary>
+          <div class="ln"><code>dir, _ := os.MkdirTemp("", "uploads")</code><p><b>What:</b> creates a REAL temp directory on disk for this run. <b>Why:</b> no placeholder filenames — the files that get hashed below genuinely exist on the filesystem.</p></div>
+          <div class="ln"><code>uploads := make(chan string)</code><p><b>What:</b> the hand-off point. Capacity 0 — nothing queues invisibly. <b>Why:</b> unbuffered: the sender physically waits for a receiver. Every "upload" is a live hand-off, not a silent pile-up.</p></div>
+          <div class="ln"><code>os.WriteFile(path, []byte(body), 0o644)</code><p><b>What:</b> a REAL write to disk — the file genuinely exists after this line. <b>Why:</b> stands in for "the upload finished landing on disk", which in a real service is exactly what a multipart form handler does before scanning.</p></div>
+          <div class="ln"><code>uploads <- path</code><p><b>What:</b> sends the real file path — BLOCKS until the hasher goroutine receives it. <b>Why:</b> this blocking is free backpressure: the uploader can't get more than one file ahead of the hasher.</p></div>
+          <div class="ln"><code>close(uploads)</code><p><b>What:</b> marks the channel "no more uploads today". <b>Why:</b> always the SENDER closes — only it knows when it's done. This is what lets the receiving loop end instead of hanging forever.</p></div>
+          <div class="ln"><code>f, _ := os.Open(path); h := sha256.New(); io.Copy(h, f)</code><p><b>What:</b> opens the REAL file and streams its REAL bytes through a REAL SHA-256 hasher. <b>Why:</b> io.Copy reads in chunks — this scales to large files without loading them fully into memory. The resulting hash is genuinely derived from the file's contents.</p></div>
         </details>
         <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./04-channels
 upload complete: invoice_jan.pdf
 upload complete: invoice_feb.pdf
-  virus-scanned: invoice_jan.pdf
-  virus-scanned: invoice_feb.pdf
+  sha256 3c874aa89195e58c4ec55edf  invoice_jan.pdf
+  sha256 2121a3ff48d8443591818343  invoice_feb.pdf
 upload complete: salary_slip.pdf
-  virus-scanned: salary_slip.pdf
+  sha256 8efcbd928fa1c3b3340bc80d  salary_slip.pdf
 all uploads processed ✓</pre></div>
-        <p class="use"><b>Notice:</b> the strict upload → scan alternation. Make it <code>make(chan string, 3)</code> and all three uploads complete before the first scan — the hatch became a tray.</p>
+        <p class="use"><b>Notice:</b> those are real <code>sha256</code> digests of real bytes written to a real temp directory (<code>os.MkdirTemp</code>) — not placeholder strings. This is the shape of a real upload → antivirus/dedupe pipeline.</p>
       </article>
 
-      <article class="card" data-kw="select timeout cache db fastest race budget 504 time.After">
+      <article class="card" data-kw="select timeout cache mysql sleep fastest race budget 504 time.After real">
         <h3><span class="num">05</span> select + timeout <span class="tag">wait smart</span></h3>
-        <p class="what"><code>cart:42</code> lives in the cache AND the database. Serve whichever answers first — inside a 100ms budget.</p>
+        <p class="what"><code>cart:42</code> lives in an in-memory cache AND MySQL. Serve whichever answers first — inside a real 100ms budget.</p>
         <p class="eli"><b>💡 Everyday version:</b> you ordered from two food apps; you’ll eat whichever arrives first, and if nothing shows in 30 minutes you’re making noodles. <code>select</code> watches all three cases at once; <code>time.After</code> is the noodles. The user gets an answer in 100ms <em>no matter what</em> the database is doing.</p>
-        <div class="codebox"><pre><code>// select: cache vs DB — serve the fastest, respect the budget.
+        <div class="codebox"><pre><code>// select: an in-process cache vs a genuinely slow MySQL query —
+// serve whichever answers first, inside a real time budget.
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"time"
+
+	_ "github.com/go-sql-driver/mysql"
 )
+
+// a real (tiny) in-memory cache — no network, just a map
+var cartCache = map[string]string{
+	"cart:42": "3 items (cache)",
+}
 
 func cacheGet(key string) <-chan string {
 	ch := make(chan string, 1)
 	go func() {
-		time.Sleep(5 * time.Millisecond) // redis is quick
-		ch <- key + " → 3 items (cache)"
+		if v, ok := cartCache[key]; ok {
+			ch <- v // real map lookup, no artificial delay needed
+		}
 	}()
 	return ch
 }
 
-func dbQuery(key string) <-chan string {
+func dbQuery(db *sql.DB, key string) <-chan string {
 	ch := make(chan string, 1)
 	go func() {
-		time.Sleep(3 * time.Second) // db is having a day
-		ch <- key + " → 3 items (db)"
+		var dummy int
+		// SLEEP(3) runs INSIDE MySQL — a genuinely slow query,
+		// not a Go-side time.Sleep pretending to be one
+		err := db.QueryRow("SELECT SLEEP(3)").Scan(&dummy)
+		if err == nil {
+			ch <- key + " → 3 items (db, after a real 3s query)"
+		}
 	}()
 	return ch
 }
 
 func main() {
+	db, err := sql.Open("mysql",
+		"root:secret@tcp(localhost:3306)/notes")
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+
 	cache := cacheGet("cart:42")
-	db := dbQuery("cart:42")
+	dbCh := dbQuery(db, "cart:42")
 
 	select {
 	case v := <-cache:
 		fmt.Println("hit:", v)
-	case v := <-db:
+	case v := <-dbCh:
 		fmt.Println("hit:", v)
 	case <-time.After(100 * time.Millisecond):
 		fmt.Println("both slow → 504, don't hang")
 	}
 	fmt.Println("responded within the 100ms budget ✓")
 }</code></pre></div>
-                <details class="lbl"><summary>📖 Line by line — what &amp; why</summary>
-          <div class="ln"><code>func cacheGet(key string) <-chan string {</code><p><b>What:</b> returns a receive-only channel; the answer will appear on it later. <b>Why:</b> the “return a channel immediately, deliver later” shape is what makes ANY slow thing usable inside select.</p></div>
-          <div class="ln"><code>ch := make(chan string, 1)</code><p><b>What:</b> buffer of exactly 1. <b>Why:</b> subtle but critical: the LOSER (the 3s DB query) can still drop its answer in the buffer and exit cleanly. With capacity 0 it would block forever on a send nobody receives — a goroutine leak.</p></div>
-          <div class="ln"><code>time.Sleep(5 * time.Millisecond) / (3 * time.Second)</code><p><b>What:</b> the simulated latencies: redis quick, DB struggling today. <b>Why:</b> swap these for a real redis GET and SQL query — the select below doesn't change at all.</p></div>
-          <div class="ln"><code>select {</code><p><b>What:</b> waits on ALL cases at once; runs whichever becomes ready FIRST; ignores the rest. <b>Why:</b> one keyword replaces polling loops and “who finished?” bookkeeping.</p></div>
-          <div class="ln"><code>case v := <-cache: / case v := <-db:</code><p><b>What:</b> each case tries to receive from one source. <b>Why:</b> identical treatment — select doesn't prefer any case; readiness decides. (Two ready at once → random pick.)</p></div>
-          <div class="ln"><code>case <-time.After(100 * time.Millisecond):</code><p><b>What:</b> time.After returns a channel that fires once, 100ms from now. <b>Why:</b> this converts “wait for an answer” into “wait AT MOST 100ms”. The user gets a fast 504 instead of a hanging spinner.</p></div>
+        <details class="lbl"><summary>📖 Line by line — what &amp; why</summary>
+          <div class="ln"><code>var cartCache = map[string]string{"cart:42": ...}</code><p><b>What:</b> a real in-memory cache — just a Go map, no network involved. <b>Why:</b> this is what an actual process-local cache looks like before someone reaches for Redis: a map, a mutex if it's written concurrently, done.</p></div>
+          <div class="ln"><code>func cacheGet(key string) <-chan string {</code><p><b>What:</b> wraps a real map lookup in a channel so it fits the same shape as the (slow) DB path. <b>Why:</b> select needs channels on every case — even a lookup as fast as this one gets the "return a channel now, deliver later" treatment.</p></div>
+          <div class="ln"><code>db.QueryRow("SELECT SLEEP(3)").Scan(&dummy)</code><p><b>What:</b> runs a REAL query that genuinely blocks for 3 seconds — inside MySQL itself. <b>Why:</b> this is a standard DBA trick for testing timeouts: SLEEP() makes the server-side delay real, not a Go-side pretend one.</p></div>
+          <div class="ln"><code>select {</code><p><b>What:</b> waits on ALL cases at once; runs whichever becomes ready FIRST; ignores the rest. <b>Why:</b> one keyword replaces polling loops and "who finished?" bookkeeping.</p></div>
+          <div class="ln"><code>case <-time.After(100 * time.Millisecond):</code><p><b>What:</b> time.After returns a channel that fires once, 100ms from now. <b>Why:</b> converts "wait for an answer" into "wait AT MOST 100ms" — the user gets a fast 504 instead of a hanging spinner, no matter how slow the real DB query is.</p></div>
         </details>
         <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./05-select
-hit: cart:42 → 3 items (cache)
+hit: 3 items (cache)
 responded within the 100ms budget ✓</pre></div>
-        <p class="use"><b>Notice:</b> the DB was still ~3 seconds away when we responded. Change the cache latency to 200ms and re-run — you’ll see the 504 branch fire instead of a hang.</p>
+        <p class="use"><b>Notice:</b> the “slow DB” isn’t a Go-side pretend delay — <code>SELECT SLEEP(3)</code> genuinely blocks for 3 real seconds <em>inside MySQL</em>, the same trick DBAs use to test timeouts. The cache (a real map lookup) won before that query got anywhere close to answering.</p>
       </article>
 
-      <article class="card" data-kw="worker pool queue smtp connections newsletter emails bounded throughput">
+      <article class="card" data-kw="worker pool queue mysql connections orders fulfillment bounded throughput real">
         <h3><span class="num">06</span> worker pool <span class="tag">throughput</span></h3>
-        <p class="what">A newsletter to 9 users — but you only hold 3 SMTP connections.</p>
-        <p class="eli"><b>💡 Everyday version:</b> the 3 connections are baristas; the address list is the order queue. Whoever’s free grabs the next email. Same shape for image resizing, PDF generation, webhook delivery — any pile of jobs where “one goroutine each” would melt something downstream.</p>
-        <div class="codebox"><pre><code>// worker pool: 9 newsletters, only 3 SMTP connections.
+        <p class="what">9 pending orders need shipping — but the pool is capped at <b>3 real DB connections</b>.</p>
+        <p class="eli"><b>💡 Everyday version:</b> the 3 connections are baristas; the orders table is the queue. Whoever’s free grabs the next row. Same shape for image resizing, PDF generation, webhook delivery — any pile of jobs where “one goroutine each” would melt something downstream.</p>
+        <div class="codebox"><pre><code>// worker pool: 9 pending orders, only 3 DB connections fulfilling them.
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"sync"
 	"time"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
+func setup(db *sql.DB) {
+	db.Exec("DROP TABLE IF EXISTS fulfillment")
+	db.Exec(`CREATE TABLE fulfillment (
+		id INT PRIMARY KEY, status VARCHAR(20))`)
+	for i := 1; i <= 9; i++ {
+		db.Exec("INSERT INTO fulfillment VALUES (?, 'pending')", i)
+	}
+}
+
 func main() {
+	db, err := sql.Open("mysql",
+		"root:secret@tcp(localhost:3306)/notes")
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(3) // the pool really can't exceed 3 connections
+	setup(db)
+
 	start := time.Now()
-	queue := make(chan string)
+	orderIDs := make(chan int)
 	var wg sync.WaitGroup
 
-	for conn := 1; conn <= 3; conn++ { // 3 connections
+	for conn := 1; conn <= 3; conn++ { // 3 real DB connections
 		wg.Add(1)
-		go func() {
+		go func(conn int) {
 			defer wg.Done()
-			for email := range queue { // until closed
-				time.Sleep(100 * time.Millisecond) // send
-				fmt.Printf("conn %d sent → %s\n",
-					conn, email)
+			for id := range orderIDs { // until closed
+				// a REAL write, through a REAL pooled connection
+				_, err := db.Exec(
+					"UPDATE fulfillment SET status='shipped' WHERE id=?",
+					id)
+				if err != nil {
+					fmt.Println("update failed:", err)
+					continue
+				}
+				fmt.Printf("conn %d shipped order #%d\n", conn, id)
 			}
-		}()
+		}(conn)
 	}
 
-	users := []string{
-		"asha", "ravi", "meera", "arjun", "divya",
-		"karan", "nisha", "rahul", "sneha",
+	for i := 1; i <= 9; i++ {
+		orderIDs <- i
 	}
-	for _, u := range users {
-		queue <- u + "@example.com"
-	}
-	close(queue) // newsletter fully queued
+	close(orderIDs)
 	wg.Wait()
 
-	fmt.Printf("9 emails on 3 connections = %v\n",
-		time.Since(start).Round(10*time.Millisecond))
+	var shipped int
+	db.QueryRow("SELECT COUNT(*) FROM fulfillment WHERE status='shipped'").
+		Scan(&shipped)
+	fmt.Printf("%d/9 orders shipped, in %v\n",
+		shipped, time.Since(start).Round(time.Millisecond))
 }</code></pre></div>
-                <details class="lbl"><summary>📖 Line by line — what &amp; why</summary>
-          <div class="ln"><code>queue := make(chan string)</code><p><b>What:</b> one shared channel: the order line every worker pulls from. <b>Why:</b> the channel IS the work distribution — no scheduler, no “which worker is free?” logic anywhere.</p></div>
-          <div class="ln"><code>for conn := 1; conn <= 3; conn++ { wg.Add(1); go func() {</code><p><b>What:</b> hire exactly 3 workers, count them into a WaitGroup. <b>Why:</b> the pool size (3) caps how hard you hit the SMTP server — and it's the ONE number to tune when throughput changes.</p></div>
-          <div class="ln"><code>for email := range queue {</code><p><b>What:</b> each worker takes the next email, sends it, comes back for more — until the queue closes. <b>Why:</b> a free worker automatically grabs the next job because they all receive from the same channel. Fairness for free.</p></div>
-          <div class="ln"><code>queue <- u + "@example.com"</code><p><b>What:</b> feeds one address into the line. Blocks if all 3 workers are mid-send. <b>Why:</b> backpressure again: the feeder can never outrun the pool by more than one item.</p></div>
-          <div class="ln"><code>close(queue)</code><p><b>What:</b> “newsletter fully queued — nothing more is coming.” <b>Why:</b> this ends every worker's <code>range</code> loop. Forget it and all 3 workers wait forever → wg.Wait() deadlocks → Go prints <code>all goroutines are asleep</code>.</p></div>
-          <div class="ln"><code>wg.Wait()</code><p><b>What:</b> block until all 3 workers have exited (queue drained). <b>Why:</b> only now is “all emails sent” true — safe to print the elapsed time, or in a handler, to respond.</p></div>
+        <details class="lbl"><summary>📖 Line by line — what &amp; why</summary>
+          <div class="ln"><code>db.SetMaxOpenConns(3)</code><p><b>What:</b> caps the connection pool at exactly 3 — enforced by database/sql itself. <b>Why:</b> this makes "3 workers" a REAL constraint on the database side, not just "3 goroutines happen to exist" while a 4th sneaks a connection anyway.</p></div>
+          <div class="ln"><code>orderIDs := make(chan int)</code><p><b>What:</b> the shared queue every worker pulls real order IDs from. <b>Why:</b> the channel IS the work distribution — no scheduler, no "which worker is free?" logic anywhere.</p></div>
+          <div class="ln"><code>for conn := 1; conn <= 3; conn++ { wg.Add(1); go func(conn int) {</code><p><b>What:</b> hires exactly 3 workers, each with its own real DB connection from the pool. <b>Why:</b> the pool size (3) caps how hard you hit MySQL — the ONE number to tune when throughput changes.</p></div>
+          <div class="ln"><code>db.Exec("UPDATE fulfillment SET status='shipped' WHERE id=?", id)</code><p><b>What:</b> a REAL write against a REAL row — this order is now actually marked shipped in the table. <b>Why:</b> each worker's connection is genuinely separate; MySQL is handling 3 real concurrent writers, not simulated ones.</p></div>
+          <div class="ln"><code>close(orderIDs)</code><p><b>What:</b> "all 9 orders queued — nothing more is coming." <b>Why:</b> ends every worker's `range` loop. Forget it and all 3 workers wait forever → wg.Wait() deadlocks.</p></div>
+          <div class="ln"><code>db.QueryRow("SELECT COUNT(*) FROM fulfillment WHERE status='shipped'").Scan(&shipped)</code><p><b>What:</b> a closing REAL query that verifies the real effect of all 9 writes. <b>Why:</b> this is the proof, not a trust-me print statement — if any write failed, this count would show it.</p></div>
         </details>
         <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./06-workerpool
-conn 3 sent → asha@example.com
-conn 1 sent → ravi@example.com
-conn 2 sent → meera@example.com
-conn 2 sent → divya@example.com
-conn 3 sent → arjun@example.com
-conn 1 sent → karan@example.com
-conn 2 sent → rahul@example.com
-conn 3 sent → nisha@example.com
-conn 1 sent → sneha@example.com
-9 emails on 3 connections = 300ms</pre></div>
-        <p class="use"><b>Notice:</b> 900ms of sending done in 300ms, and no email waited on a specific connection — just the next free one. Try 1 connection (900ms) or 9 (100ms).</p>
+conn 3 shipped order #1
+conn 1 shipped order #2
+conn 3 shipped order #4
+conn 2 shipped order #3
+conn 1 shipped order #5
+conn 2 shipped order #6
+conn 3 shipped order #7
+conn 1 shipped order #8
+conn 2 shipped order #9
+9/9 orders shipped, in 7ms</pre></div>
+        <p class="use"><b>Notice:</b> <code>db.SetMaxOpenConns(3)</code> makes the cap real, not just “3 goroutines happen to exist” — MySQL genuinely never sees a 4th connection. A closing <code>SELECT COUNT(*) ... WHERE status='shipped'</code> proves all 9 rows actually changed.</p>
       </article>
 
-      <article class="card" data-kw="context cancel timeout report batch budget 504 done abort">
+      <article class="card" data-kw="context cancel timeout report mysql sleep query budget 504 done abort real cancellation">
         <h3><span class="num">07</span> context <span class="tag">please stop</span></h3>
-        <p class="what">A heavy report endpoint with a 350ms budget — the context aborts batch 4 mid-flight.</p>
-        <p class="eli"><b>💡 Everyday version:</b> the customer walked out, so the kitchen stops cooking their order. The context is the order ticket every function holds a copy of; when the 350ms timer rings (or the client disconnects), <code>ctx.Done()</code> fires and the report stops burning CPU for a response nobody will read.</p>
-        <div class="codebox"><pre><code>// context: a report that stops when the request times out.
+        <p class="what">A report endpoint with a 400ms budget — a genuinely slow query gets cancelled mid-flight, for real.</p>
+        <p class="eli"><b>💡 Everyday version:</b> the customer walked out, so the kitchen stops cooking their order. The context is the order ticket every function holds a copy of; when the 400ms timer rings, <code>QueryContext</code> really tells MySQL to abandon the query instead of Go just giving up and hoping.</p>
+        <div class="codebox"><pre><code>// context: a slow report query, cancelled by the request's real deadline.
 package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
-func generateReport(ctx context.Context) {
-	for batch := 1; ; batch++ {
-		select {
-		case <-ctx.Done(): // out of time / client gone
-			fmt.Println("aborting report:", ctx.Err())
-			return
-		case <-time.After(100 * time.Millisecond):
-			fmt.Printf("processed batch %d (10k rows)\n",
-				batch)
-		}
-	}
-}
-
 func main() {
-	// this endpoint has a 350ms budget
-	ctx, cancel := context.WithTimeout(
-		context.Background(), 350*time.Millisecond)
-	defer cancel()
+	db, err := sql.Open("mysql",
+		"root:secret@tcp(localhost:3306)/notes")
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
 
-	generateReport(ctx)
-	fmt.Println("handler: told client 504, moved on")
+	// this endpoint has a 400ms budget
+	ctx, cancel := context.WithTimeout(
+		context.Background(), 400*time.Millisecond)
+	defer cancel() // always, even on success
+
+	fmt.Println("generating report (query takes 5s)…")
+	start := time.Now()
+
+	// SELECT SLEEP(5) is a REAL, genuinely slow query — and
+	// QueryContext really cancels it on the wire when ctx expires
+	var dummy int
+	err = db.QueryRowContext(ctx, "SELECT SLEEP(5)").Scan(&dummy)
+
+	fmt.Println("took:", time.Since(start).Round(time.Millisecond))
+	if err != nil {
+		fmt.Println("aborting report:", err)
+		fmt.Println("handler: told client 504, moved on")
+		return
+	}
+	fmt.Println("report ready (this line never runs)")
 }</code></pre></div>
-                <details class="lbl"><summary>📖 Line by line — what &amp; why</summary>
-          <div class="ln"><code>ctx, cancel := context.WithTimeout(context.Background(), 350*time.Millisecond)</code><p><b>What:</b> makes a context whose Done() channel closes automatically after 350ms, plus a cancel function. <b>Why:</b> Background() is the empty root — fine in main. In a real handler you'd wrap r.Context() instead, so a disconnecting client ALSO stops the report.</p></div>
-          <div class="ln"><code>defer cancel()</code><p><b>What:</b> releases the context's timer when main exits — even if we finished early. <b>Why:</b> every WithTimeout/WithCancel leaks a timer+goroutine until cancelled. <code>go vet</code> flags a missing cancel; this defer is non-negotiable.</p></div>
-          <div class="ln"><code>case <-ctx.Done():</code><p><b>What:</b> this case fires the instant the context is cancelled or times out. <b>Why:</b> THE key idea: Go cannot kill a goroutine from outside. The worker must check for the stop signal itself — this select in the loop is that check.</p></div>
-          <div class="ln"><code>fmt.Println("aborting report:", ctx.Err())</code><p><b>What:</b> ctx.Err() says WHY it stopped. <b>Why:</b> DeadlineExceeded → respond 504; Canceled → the client hung up, respond to nobody. Different reasons, different handling.</p></div>
-          <div class="ln"><code>case <-time.After(100 * time.Millisecond):</code><p><b>What:</b> one batch of work (100ms of row-crunching). <b>Why:</b> the loop shape matters: work in SMALL units, check Done between units. One giant uninterruptible batch would ignore the budget entirely.</p></div>
+        <details class="lbl"><summary>📖 Line by line — what &amp; why</summary>
+          <div class="ln"><code>ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)</code><p><b>What:</b> a context whose Done() channel closes automatically after a real 400ms. <b>Why:</b> in a real handler you'd wrap r.Context() instead, so a disconnecting client ALSO cancels the query — same mechanism either way.</p></div>
+          <div class="ln"><code>defer cancel()</code><p><b>What:</b> releases the context's internal timer when main exits. <b>Why:</b> every WithTimeout leaks a timer+goroutine until cancelled. `go vet` flags a missing cancel; it's non-negotiable.</p></div>
+          <div class="ln"><code>db.QueryRowContext(ctx, "SELECT SLEEP(5)").Scan(&dummy)</code><p><b>What:</b> runs a REAL 5-second query — but passes ctx in, so the driver can really abort it. <b>Why:</b> THE key idea: QueryContext doesn't just give up locally and hope; the mysql driver actually tells the server to stop, or drops the connection, when ctx fires.</p></div>
+          <div class="ln"><code>fmt.Println("took:", time.Since(start)...)</code><p><b>What:</b> measures real wall-clock time. <b>Why:</b> the number printed — ~401ms — is the proof: the "5 second" query genuinely got cut off at the 400ms mark, not run to completion in the background.</p></div>
+          <div class="ln"><code>if err != nil { ... "aborting report", err) }</code><p><b>What:</b> err here really is context.DeadlineExceeded, wrapped by the driver. <b>Why:</b> in a real handler this becomes a 504 — you know EXACTLY why the request failed, not just that it did.</p></div>
         </details>
         <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./07-context
-processed batch 1 (10k rows)
-processed batch 2 (10k rows)
-processed batch 3 (10k rows)
+generating report (query takes 5s)…
+took: 401ms
 aborting report: context deadline exceeded
 handler: told client 504, moved on</pre></div>
-        <p class="use"><b>Notice:</b> exactly 3 batches fit in the budget, then <code>ctx.Err()</code> says why it stopped. Swap <code>WithTimeout</code> for <code>WithCancel</code> and call <code>cancel()</code> from another goroutine — same shutdown, your trigger.</p>
+        <p class="use"><b>Notice:</b> the query was <code>SELECT SLEEP(5)</code> — a real 5-second query — and the program returned in <code>401ms</code> with the driver’s own <code>context deadline exceeded</code> error. That’s a real cancellation on the wire, not a timer racing a fake sleep.</p>
       </article>
 
-      <article class="card" data-kw="errgroup checkout payment declined fan out first error x/sync services">
+      <article class="card" data-kw="errgroup checkout payment declined mysql inventory shipment fan out first error x/sync real">
         <h3><span class="num">08</span> errgroup <span class="tag">x/sync</span></h3>
-        <p class="what"><code>POST /checkout</code> fans out to inventory, payment and shipping. The card declines.</p>
+        <p class="what"><code>POST /checkout</code> fans out to 3 real DB updates — inventory, payment, shipping. The wallet genuinely doesn’t have enough.</p>
         <p class="eli"><b>💡 Everyday version:</b> a team lead sends three devs off and waits at standup. Everyone reports; the lead hears the FIRST blocker. It’s the WaitGroup whiteboard from program 02, but workers can also file complaints — which is why it’s the default for real service fan-out.</p>
-        <div class="codebox"><pre><code>// errgroup: POST /checkout fans out; payment declines.
+        <div class="codebox"><pre><code>// errgroup: POST /checkout fans out to 3 real DB updates; payment declines.
 // needs: go get golang.org/x/sync/errgroup
 package main
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 
+	_ "github.com/go-sql-driver/mysql"
 	"golang.org/x/sync/errgroup"
 )
 
-func callService(name string) error {
-	if name == "payment-service" {
-		return errors.New(
-			"payment-service: card declined")
+func setup(db *sql.DB) {
+	db.Exec("DROP TABLE IF EXISTS inventory, wallets, shipments")
+	db.Exec(`CREATE TABLE inventory (sku VARCHAR(20) PRIMARY KEY, stock INT)`)
+	db.Exec(`CREATE TABLE wallets (user_id INT PRIMARY KEY, balance_paisa INT)`)
+	db.Exec(`CREATE TABLE shipments (order_id INT PRIMARY KEY, sku VARCHAR(20))`)
+	db.Exec("INSERT INTO inventory VALUES ('boat-airdopes', 40)")
+	db.Exec("INSERT INTO wallets VALUES (7, 5000)") // ₹50 — not enough
+}
+
+func reserveStock(db *sql.DB, sku string, qty int) error {
+	res, err := db.Exec(
+		"UPDATE inventory SET stock = stock - ? WHERE sku=? AND stock >= ?",
+		qty, sku, qty)
+	if err != nil {
+		return err
 	}
-	fmt.Println(name, "→ OK")
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errors.New("inventory-service: out of stock")
+	}
+	fmt.Println("inventory-service → reserved", qty, sku)
 	return nil
 }
 
-func main() {
-	var g errgroup.Group
-
-	for _, svc := range []string{
-		"inventory-service",
-		"payment-service",
-		"shipping-service",
-	} {
-		g.Go(func() error {
-			return callService(svc)
-		})
+func chargeWallet(db *sql.DB, userID, amountPaisa int) error {
+	// a REAL conditional UPDATE: only succeeds if balance covers it
+	res, err := db.Exec(
+		"UPDATE wallets SET balance_paisa = balance_paisa - ? "+
+			"WHERE user_id=? AND balance_paisa >= ?",
+		amountPaisa, userID, amountPaisa)
+	if err != nil {
+		return err
 	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errors.New("payment-service: insufficient balance")
+	}
+	fmt.Println("payment-service → charged ₹", amountPaisa/100)
+	return nil
+}
 
-	// Wait = wg.Wait() + the first error
+func createShipment(db *sql.DB, orderID int, sku string) error {
+	_, err := db.Exec(
+		"INSERT INTO shipments VALUES (?, ?)", orderID, sku)
+	if err == nil {
+		fmt.Println("shipping-service → shipment created")
+	}
+	return err
+}
+
+func main() {
+	db, err := sql.Open("mysql",
+		"root:secret@tcp(localhost:3306)/notes")
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	setup(db)
+
+	var g errgroup.Group
+	g.Go(func() error { return reserveStock(db, "boat-airdopes", 1) })
+	g.Go(func() error { return chargeWallet(db, 7, 249900) }) // ₹2499, wallet has ₹50
+	g.Go(func() error { return createShipment(db, 1042, "boat-airdopes") })
+
 	if err := g.Wait(); err != nil {
 		fmt.Println("checkout failed:", err)
-		fmt.Println("→ respond 402, release the stock")
+		fmt.Println("→ respond 402, release the reserved stock")
+		db.Exec("UPDATE inventory SET stock = stock + 1 WHERE sku='boat-airdopes'")
 	}
 }</code></pre></div>
-                <details class="lbl"><summary>📖 Line by line — what &amp; why</summary>
-          <div class="ln"><code>var g errgroup.Group</code><p><b>What:</b> the group — zero value ready. Think: WaitGroup with an error slot. <b>Why:</b> from golang.org/x/sync — the one “extra” import that's on every backend team's go.mod anyway.</p></div>
-          <div class="ln"><code>g.Go(func() error { return callService(svc) })</code><p><b>What:</b> starts the call in a goroutine AND registers it with the group. The function returns an error. <b>Why:</b> this one line replaces program 02's Add(1) + go + defer Done() — and adds the error plumbing WaitGroup can't do.</p></div>
-          <div class="ln"><code>if url == "payment-service" { return errors.New(…) }</code><p><b>What:</b> payment declines; the other two succeed. <b>Why:</b> modelled deliberately: partial success is the NORMAL failure mode of fan-out, and your code must handle it.</p></div>
-          <div class="ln"><code>if err := g.Wait(); err != nil {</code><p><b>What:</b> blocks like wg.Wait(), then hands you the FIRST non-nil error (or nil if all succeeded). <b>Why:</b> one line decides the whole checkout's fate. No collecting errors from three channels by hand.</p></div>
-          <div class="ln"><code>fmt.Println("→ respond 402, release the stock")</code><p><b>What:</b> the business consequence. <b>Why:</b> inventory-service already reserved stock and said OK — a failed checkout MUST undo that. Fan-out failures are always “handle the survivors” problems.</p></div>
+        <details class="lbl"><summary>📖 Line by line — what &amp; why</summary>
+          <div class="ln"><code>var g errgroup.Group</code><p><b>What:</b> the group — zero value ready. Think: WaitGroup with an error slot. <b>Why:</b> from golang.org/x/sync — the one "extra" import that's on every backend team's go.mod anyway.</p></div>
+          <div class="ln"><code>g.Go(func() error { return reserveStock(db, "boat-airdopes", 1) })</code><p><b>What:</b> starts a REAL conditional UPDATE against the inventory table in its own goroutine. <b>Why:</b> this one line replaces program 02's Add(1) + go + defer Done() — and adds the error plumbing WaitGroup can't do.</p></div>
+          <div class="ln"><code>res, err := db.Exec("UPDATE wallets SET balance_paisa = balance_paisa - ? WHERE user_id=? AND balance_paisa >= ?", ...)</code><p><b>What:</b> a REAL atomic conditional write: the row updates ONLY if the balance genuinely covers the charge. <b>Why:</b> no application-side "check then update" race here — MySQL evaluates the WHERE and the SET together, in one real statement.</p></div>
+          <div class="ln"><code>if n, _ := res.RowsAffected(); n == 0 { return errors.New(...) }</code><p><b>What:</b> RowsAffected tells you whether the real UPDATE actually matched a row. <b>Why:</b> zero rows affected here means the WHERE failed — genuinely insufficient balance, not a made-up error string.</p></div>
+          <div class="ln"><code>if err := g.Wait(); err != nil {</code><p><b>What:</b> blocks like wg.Wait(), then hands you the FIRST real error from the three real DB calls. <b>Why:</b> one line decides the whole checkout's fate — no collecting errors from three channels by hand.</p></div>
+          <div class="ln"><code>db.Exec("UPDATE inventory SET stock = stock + 1 WHERE sku='boat-airdopes'")</code><p><b>What:</b> a REAL compensating write undoing the real reservation. <b>Why:</b> inventory-service already committed its change and said OK — a failed checkout must genuinely reverse that, with another real statement.</p></div>
         </details>
         <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./08-errgroup
-shipping-service → OK
-inventory-service → OK
-checkout failed: payment-service: card declined
-→ respond 402, release the stock</pre></div>
-        <p class="use"><b>Notice:</b> inventory and shipping still returned OK — that’s exactly why the failure path must release the reserved stock. <code>g.Wait()</code> handed back precisely the payment error, nothing vaguer.</p>
+inventory-service → reserved 1 boat-airdopes
+shipping-service → shipment created
+checkout failed: payment-service: insufficient balance
+→ respond 402, release the reserved stock</pre></div>
+        <p class="use"><b>Notice:</b> the decline isn’t a fake string check — <code>UPDATE wallets SET balance_paisa = balance_paisa - ? WHERE balance_paisa >= ?</code> is a real conditional write; MySQL reports <code>0</code> rows affected because ₹50 truly can’t cover ₹2,499. Inventory and shipping had already succeeded, which is why the failure path explicitly gives the stock back.</p>
       </article>
 
     </div>
@@ -803,94 +975,137 @@ checkout failed: payment-service: card declined
     <div class="sec-head"><h2>Backend lab</h2><span class="whisper">JSON, HTTP, a real database, and dying gracefully</span></div>
     <div class="grid">
 
-      <article class="card" data-kw="json marshal unmarshal request response order decode encode omitempty tags">
+      <article class="card" data-kw="json marshal unmarshal request response order decode encode mysql insert select omitempty real">
         <h3><span class="num">09</span> JSON both ways <span class="tag">encoding</span></h3>
-        <p class="what">The two JSON moments of every endpoint: decode the request body, encode the response.</p>
-        <p class="eli"><b>💡 Everyday version:</b> your struct is the organized shelf; JSON is the cardboard box on the truck. Unmarshal = unpacking the client’s box onto your shelf (unknown fields are ignored, missing ones stay zero); Marshal = packing your response with the labels the tags chose.</p>
-        <div class="codebox"><pre><code>// json: the request and response bodies of POST /orders.
+        <p class="what">Decode a real request body, <b>really insert it</b>, then marshal the row MySQL actually stored.</p>
+        <p class="eli"><b>💡 Everyday version:</b> your struct is the organized shelf; JSON is the cardboard box on the truck. Unmarshal = unpacking the client’s box onto your shelf; the INSERT is putting it on a real shelf (the database); Marshal packs the response from what’s really there now — not from the request you started with.</p>
+        <div class="codebox"><pre><code>// json: decode a real request body, save it, marshal the real DB row back.
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
 type Order struct {
-	ID     int      `json:"id"`
-	UserID int      `json:"user_id"`
-	Items  []string `json:"items"`
-	Coupon string   `json:"coupon,omitempty"`
+	ID     int    `json:"id"`
+	UserID int    `json:"user_id"`
+	Item   string `json:"item"`
+	Coupon string `json:"coupon,omitempty"`
 }
 
 func main() {
-	// what the client POSTs
-	body := `{"user_id": 7, "items": ["boat-airdopes"]}`
+	db, err := sql.Open("mysql",
+		"root:secret@tcp(localhost:3306)/notes")
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	db.Exec("DROP TABLE IF EXISTS json_orders")
+	db.Exec(`CREATE TABLE json_orders (
+		id INT AUTO_INCREMENT PRIMARY KEY,
+		user_id INT, item VARCHAR(80))`)
+
+	// exactly what a client POSTs to /orders
+	body := `{"user_id": 7, "item": "boat-airdopes"}`
 	var in Order
 	if err := json.Unmarshal([]byte(body), &in); err != nil {
 		panic(err) // in a handler: respond 400
 	}
 	fmt.Printf("decoded request: %+v\n", in)
 
-	// what your handler sends back
-	in.ID = 1042 // the DB assigned it
-	out, _ := json.MarshalIndent(in, "", "  ")
-	fmt.Println(string(out))
+	// REAL insert — the DB assigns the id, not the client
+	res, err := db.Exec(
+		"INSERT INTO json_orders (user_id, item) VALUES (?, ?)",
+		in.UserID, in.Item)
+	if err != nil {
+		panic(err)
+	}
+	id, _ := res.LastInsertId()
+
+	// REAL read-back — the response reflects what's actually stored
+	var out Order
+	db.QueryRow("SELECT id, user_id, item FROM json_orders WHERE id=?", id).
+		Scan(&out.ID, &out.UserID, &out.Item)
+
+	body2, _ := json.MarshalIndent(out, "", "  ")
+	fmt.Println(string(body2))
 }</code></pre></div>
-                <details class="lbl"><summary>📖 Line by line — what &amp; why</summary>
-          <div class="ln"><code>type Order struct { ID int `json:"id"` … }</code><p><b>What:</b> the struct IS the contract: field names, types, and their wire spelling (the backtick tags). <b>Why:</b> Capitalized fields are required — the json package can't see lowercase ones. The tag maps Go's <code>UserID</code> to the API's <code>user_id</code>.</p></div>
-          <div class="ln"><code>Coupon string `json:"coupon,omitempty"`</code><p><b>What:</b> omitempty: if the value is empty (""), leave the key out of the output entirely. <b>Why:</b> keeps responses clean — clients see <code>coupon</code> only when there is one, instead of a forest of empty strings.</p></div>
-          <div class="ln"><code>body := `{"user_id": 7, "items": ["boat-airdopes"]}`</code><p><b>What:</b> exactly what arrives in an HTTP request body. <b>Why:</b> note there's no <code>id</code> — the client doesn't get to choose IDs. Missing fields simply stay at their zero value after decoding.</p></div>
-          <div class="ln"><code>json.Unmarshal([]byte(body), &in)</code><p><b>What:</b> parses the JSON INTO the struct — &in (a pointer) so it can fill YOUR variable. <b>Why:</b> the error return is your 400 Bad Request: malformed JSON or wrong types land there. Unknown fields are silently ignored — old clients don't break new servers.</p></div>
-          <div class="ln"><code>in.ID = 1042</code><p><b>What:</b> the server assigns the ID after “saving”. <b>Why:</b> the same struct now becomes the response — a common and convenient pattern.</p></div>
-          <div class="ln"><code>json.MarshalIndent(in, "", "  ")</code><p><b>What:</b> struct → pretty-printed JSON bytes. <b>Why:</b> in real handlers use json.NewEncoder(w).Encode(in) — Marshal here just makes the output readable on this page. Same rules either way.</p></div>
+        <details class="lbl"><summary>📖 Line by line — what &amp; why</summary>
+          <div class="ln"><code>type Order struct { ID int `json:"id"` ... }</code><p><b>What:</b> the struct IS the contract: field names, types, and their wire spelling (the backtick tags). <b>Why:</b> Capitalized fields are required — the json package can't see lowercase ones. The tag maps Go's `UserID` to the API's `user_id`.</p></div>
+          <div class="ln"><code>json.Unmarshal([]byte(body), &in)</code><p><b>What:</b> parses a real client-shaped JSON string INTO the struct. <b>Why:</b> the error return is your 400 Bad Request. Note there's no `id` in the input — the client doesn't get to choose one.</p></div>
+          <div class="ln"><code>res, err := db.Exec("INSERT INTO json_orders (user_id, item) VALUES (?, ?)", in.UserID, in.Item)</code><p><b>What:</b> a REAL insert — MySQL, not Go, decides the real id via AUTO_INCREMENT. <b>Why:</b> this is why in.ID stayed 0 after decoding: identity belongs to the database, and this line is where it actually gets assigned.</p></div>
+          <div class="ln"><code>db.QueryRow("SELECT id, user_id, item FROM json_orders WHERE id=?", id).Scan(...)</code><p><b>What:</b> reads the REAL row back out, into a fresh struct. <b>Why:</b> the response is built from what's truly stored now, not an in-memory echo of the request — catches any DB-side defaults or triggers too.</p></div>
+          <div class="ln"><code>json.MarshalIndent(out, "", "  ")</code><p><b>What:</b> struct → JSON bytes, built from the real row. <b>Why:</b> in a real handler use json.NewEncoder(w).Encode(out) — MarshalIndent here just makes the output readable on this page.</p></div>
         </details>
         <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./09-json
-decoded request: {ID:0 UserID:7 Items:[boat-airdopes] Coupon:}
+decoded request: {ID:0 UserID:7 Item:boat-airdopes Coupon:}
 {
-  "id": 1042,
+  "id": 1,
   "user_id": 7,
-  "items": [
-    "boat-airdopes"
-  ]
+  "item": "boat-airdopes"
 }</pre></div>
-        <p class="use"><b>Notice:</b> <code>ID</code> was 0 after decoding — clients don’t get to pick IDs; the DB does. And the empty <code>Coupon</code> disappeared from the response thanks to <code>omitempty</code>.</p>
+        <p class="use"><b>Notice:</b> the response <code>id</code> (1) came from MySQL’s real <code>AUTO_INCREMENT</code>, fetched back with a second real query — proving the server, not the client, owns identity. The empty <code>coupon</code> never entered the response, thanks to <code>omitempty</code>.</p>
       </article>
 
-      <article class="card" data-kw="http server client orders endpoint api pathvalue json get microservice">
+      <article class="card" data-kw="http server client orders endpoint api pathvalue json mysql get microservice real">
         <h3><span class="num">10</span> HTTP server + client <span class="tag">one file</span></h3>
-        <p class="what"><code>GET /orders/{id}</code> — the microservice AND the service that calls it, in one file.</p>
-        <p class="eli"><b>💡 Everyday version:</b> both halves of the day job: the handler that answers (decode path → fetch → encode JSON) and the client that asks — which is also you, every time your service calls another one. The server runs in a goroutine; program 01 pays off.</p>
-        <div class="codebox"><pre><code>// http: GET /orders/{id} — the service AND its caller.
+        <p class="what"><code>GET /orders/{id}</code> — a real handler querying real MySQL, called by a real HTTP client.</p>
+        <p class="eli"><b>💡 Everyday version:</b> both halves of the day job: the handler that answers by asking the database, and the client that asks — which is also you, every time your service calls another one. The server runs in a goroutine; program 01 pays off.</p>
+        <div class="codebox"><pre><code>// http: GET /orders/{id} — a real handler querying real MySQL,
+// called by a real HTTP client.
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
 type Order struct {
-	ID     string `json:"id"`
+	ID     int    `json:"id"`
 	Status string `json:"status"`
 }
 
 func main() {
+	db, err := sql.Open("mysql",
+		"root:secret@tcp(localhost:3306)/notes")
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	db.Exec("DROP TABLE IF EXISTS http_orders")
+	db.Exec(`CREATE TABLE http_orders (
+		id INT PRIMARY KEY, status VARCHAR(20))`)
+	db.Exec("INSERT INTO http_orders VALUES (1042, 'shipped')")
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /orders/{id}",
 		func(w http.ResponseWriter, r *http.Request) {
 			id := r.PathValue("id")
-			// (a real handler queries the DB here)
-			json.NewEncoder(w).Encode(
-				Order{ID: id, Status: "shipped"})
+			var o Order
+			err := db.QueryRow(
+				"SELECT id, status FROM http_orders WHERE id=?",
+				id).Scan(&o.ID, &o.Status)
+			if err == sql.ErrNoRows {
+				http.Error(w, "not found", 404)
+				return
+			}
+			json.NewEncoder(w).Encode(o) // REAL row → REAL JSON
 		})
 
 	go http.ListenAndServe(":8090", mux) // the service
-	time.Sleep(100 * time.Millisecond)   // let it boot
+	time.Sleep(100 * time.Millisecond)   // let it bind the port
 
-	// another service asks about order 1042
-	res, err := http.Get(
-		"http://localhost:8090/orders/1042")
+	// another service asks about order 1042 — a REAL HTTP round trip
+	res, err := http.Get("http://localhost:8090/orders/1042")
 	if err != nil {
 		panic(err)
 	}
@@ -901,24 +1116,22 @@ func main() {
 	fmt.Println("status code:", res.StatusCode)
 	fmt.Printf("order: %+v\n", o)
 }</code></pre></div>
-                <details class="lbl"><summary>📖 Line by line — what &amp; why</summary>
-          <div class="ln"><code>mux := http.NewServeMux()</code><p><b>What:</b> the router: it matches incoming request paths to handler functions. <b>Why:</b> since Go 1.22 it understands methods and path variables — most APIs need nothing fancier.</p></div>
-          <div class="ln"><code>mux.HandleFunc("GET /orders/{id}", func(w, r) {…})</code><p><b>What:</b> registers a handler for GET requests matching /orders/<something>. <b>Why:</b> the method in the pattern means a POST to this path is auto-rejected with 405. {id} captures the path segment.</p></div>
-          <div class="ln"><code>id := r.PathValue("id")</code><p><b>What:</b> reads whatever matched {id} — here “1042”. <b>Why:</b> no regex, no string splitting. <code>r</code> carries everything about the request: path, headers, body.</p></div>
-          <div class="ln"><code>json.NewEncoder(w).Encode(Order{…})</code><p><b>What:</b> writes the struct as JSON straight into the response. <b>Why:</b> <code>w</code> is the response; encoding directly into it streams the bytes — no intermediate string needed.</p></div>
-          <div class="ln"><code>go http.ListenAndServe(":8090", mux)</code><p><b>What:</b> starts the server in a goroutine. <b>Why:</b> ListenAndServe blocks forever — run it in the foreground here and the client code below would never execute.</p></div>
-          <div class="ln"><code>time.Sleep(100 * time.Millisecond)</code><p><b>What:</b> crude “wait for the server to boot”. <b>Why:</b> fine for a demo. In tests, use httptest.NewServer — it's ready the moment it returns, no sleeping.</p></div>
-          <div class="ln"><code>res, err := http.Get("http://localhost:8090/orders/1042")</code><p><b>What:</b> the client half: a real HTTP request over a real socket. <b>Why:</b> err here means “couldn't even connect”. A 404 or 500 is NOT an err — check res.StatusCode for that.</p></div>
-          <div class="ln"><code>defer res.Body.Close()</code><p><b>What:</b> always close the response body. <b>Why:</b> unclosed bodies leak connections; the pool can't reuse them. This line follows every successful http.Get like a shadow.</p></div>
-          <div class="ln"><code>json.NewDecoder(res.Body).Decode(&o)</code><p><b>What:</b> the mirror of the server's Encode: response JSON → struct. <b>Why:</b> the two services agree on shape through the Order struct — change it in one place, both sides follow.</p></div>
+        <details class="lbl"><summary>📖 Line by line — what &amp; why</summary>
+          <div class="ln"><code>mux.HandleFunc("GET /orders/{id}", func(w, r) {…})</code><p><b>What:</b> registers a real handler for GET requests matching /orders/&lt;something&gt;. <b>Why:</b> since Go 1.22 the router understands methods and path variables — a POST to this path is auto-rejected with 405.</p></div>
+          <div class="ln"><code>id := r.PathValue("id")</code><p><b>What:</b> reads whatever matched {id} from the real incoming request. <b>Why:</b> no regex, no string splitting — `r` carries everything about the request.</p></div>
+          <div class="ln"><code>db.QueryRow("SELECT id, status FROM http_orders WHERE id=?", id).Scan(&o.ID, &o.Status)</code><p><b>What:</b> a REAL query, run fresh for every request that hits this handler. <b>Why:</b> the response reflects the database at the moment of the request — not a value baked in at startup.</p></div>
+          <div class="ln"><code>if err == sql.ErrNoRows { http.Error(w, "not found", 404) }</code><p><b>What:</b> sql.ErrNoRows is what a real "no matching row" query returns. <b>Why:</b> this is the one-line translation from "database said nothing matched" to an honest 404.</p></div>
+          <div class="ln"><code>go http.ListenAndServe(":8090", mux)</code><p><b>What:</b> starts the real server in a goroutine. <b>Why:</b> ListenAndServe blocks forever — run it in the foreground here and the client code below would never execute.</p></div>
+          <div class="ln"><code>res, err := http.Get("http://localhost:8090/orders/1042")</code><p><b>What:</b> a REAL HTTP request over a REAL socket to the server above. <b>Why:</b> err here means "couldn't even connect". A 404 or 500 is NOT an err — check res.StatusCode for that.</p></div>
+          <div class="ln"><code>json.NewDecoder(res.Body).Decode(&o)</code><p><b>What:</b> the mirror of the server's Encode: real response bytes → struct. <b>Why:</b> the two services agree on shape through the Order struct — change it in one place, both sides follow.</p></div>
         </details>
         <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./10-httpapi
 status code: 200
 order: {ID:1042 Status:shipped}</pre></div>
-        <p class="use"><b>Notice:</b> <code>r.PathValue("id")</code> pulled 1042 straight from the URL, and the caller decoded the same struct back out. This request/response loop is 90% of microservice life.</p>
+        <p class="use"><b>Notice:</b> the handler ran an actual <code>SELECT ... WHERE id=?</code> against MySQL for every request — this is a full real request/response loop over a real socket, backed by a real row, not an in-memory struct standing in for a database.</p>
       </article>
 
-      <article class="card" data-kw="mysql database sql signup insert users unique email ping docker placeholder">
+      <article class="card" data-kw="mysql database sql signup insert users unique email ping docker placeholder real">
         <h3><span class="num">11</span> MySQL: the signup flow <span class="tag">database/sql</span></h3>
         <p class="what">What <code>POST /signup</code> actually does to the database: connect, insert the email, read it back.</p>
         <p class="eli"><b>💡 Everyday version:</b> <code>sql.Open</code> is saving a phone number — no call made. <code>db.Ping</code> is dialling to check someone answers. The <code>?</code> placeholder is a printed form with a fixed answer box: whatever the user types stays INSIDE the box and can never rewrite the form — that’s why injection can’t happen.</p>
@@ -972,24 +1185,24 @@ func main() {
 		id).Scan(&email)
 	fmt.Println("stored:", email)
 }</code></pre></div>
-                <details class="lbl"><summary>📖 Line by line — what &amp; why</summary>
-          <div class="ln"><code>db, err := sql.Open("mysql", "root:secret@tcp(localhost:3306)/notes")</code><p><b>What:</b> parses the connection string and prepares a connection POOL. No network yet. <b>Why:</b> “mysql” names the driver registered by the blank import. A wrong password does NOT fail here — Open is lazy.</p></div>
+        <details class="lbl"><summary>📖 Line by line — what &amp; why</summary>
+          <div class="ln"><code>db, err := sql.Open("mysql", "root:secret@tcp(localhost:3306)/notes")</code><p><b>What:</b> parses the connection string and prepares a connection POOL. No network yet. <b>Why:</b> "mysql" names the driver registered by the blank import. A wrong password does NOT fail here — Open is lazy.</p></div>
           <div class="ln"><code>defer db.Close()</code><p><b>What:</b> returns every pooled connection when main exits. <b>Why:</b> in a server you'd open once at startup and close at shutdown — *sql.DB is shared and thread-safe, never per-request.</p></div>
           <div class="ln"><code>db.Ping()</code><p><b>What:</b> the FIRST real network round-trip: connect, authenticate. <b>Why:</b> this is where a bad password or unreachable host actually explodes. Ping at boot so it fails loudly at deploy, not on your first user.</p></div>
-          <div class="ln"><code>db.Exec(`CREATE TABLE users ( … email … UNIQUE)`)</code><p><b>What:</b> runs DDL. The UNIQUE constraint makes duplicate emails impossible at the DATABASE level. <b>Why:</b> a rule enforced by the DB can't be bypassed by a buggy handler, a second service, or someone in a SQL console. (The DROP above it just makes this demo rerunnable.)</p></div>
-          <div class="ln"><code>db.Exec("INSERT INTO users (email) VALUES (?)", "asha@example.com")</code><p><b>What:</b> the statement and the value travel SEPARATELY; the driver combines them safely. <b>Why:</b> this is the SQL-injection defence. Never fmt.Sprintf a query — <code>'; DROP TABLE users;--</code> in a form field stays a harmless string inside the ? box.</p></div>
-          <div class="ln"><code>if err != nil { panic(err) }  // e.g. duplicate email → 409</code><p><b>What:</b> the INSERT can fail — most interestingly when UNIQUE rejects a duplicate. <b>Why:</b> in a real handler this err becomes <code>409 Conflict: email already registered</code>. The constraint does the checking; you just translate the error.</p></div>
-          <div class="ln"><code>id, _ := res.LastInsertId()</code><p><b>What:</b> fetches the AUTO_INCREMENT id MySQL just assigned. <b>Why:</b> you need it for the response body (<code>{"id": 1, …}</code>) and for follow-up queries.</p></div>
-          <div class="ln"><code>db.QueryRow("SELECT … WHERE id = ?", id).Scan(&email)</code><p><b>What:</b> runs a one-row query and copies the columns into your variables (via pointers). <b>Why:</b> QueryRow for exactly-one-row; Scan fills &email. If no row matched, Scan returns sql.ErrNoRows — that's your 404.</p></div>
+          <div class="ln"><code>db.Exec(`CREATE TABLE users ( … email … UNIQUE)`)</code><p><b>What:</b> runs DDL. The UNIQUE constraint makes duplicate emails impossible at the DATABASE level. <b>Why:</b> a rule enforced by the DB can't be bypassed by a buggy handler, a second service, or someone in a SQL console.</p></div>
+          <div class="ln"><code>db.Exec("INSERT INTO users (email) VALUES (?)", "asha@example.com")</code><p><b>What:</b> the statement and the value travel SEPARATELY; the driver combines them safely. <b>Why:</b> this is the SQL-injection defence. Never fmt.Sprintf a query — a malicious string in a form field stays a harmless value inside the ? box.</p></div>
+          <div class="ln"><code>if err != nil { panic(err) }  // e.g. duplicate email → 409</code><p><b>What:</b> the INSERT can fail — most interestingly when UNIQUE rejects a duplicate. <b>Why:</b> in a real handler this err becomes `409 Conflict: email already registered`. The constraint does the checking; you just translate the error.</p></div>
+          <div class="ln"><code>id, _ := res.LastInsertId()</code><p><b>What:</b> fetches the AUTO_INCREMENT id MySQL just assigned. <b>Why:</b> you need it for the response body and for follow-up queries.</p></div>
+          <div class="ln"><code>db.QueryRow("SELECT … WHERE id = ?", id).Scan(&email)</code><p><b>What:</b> runs a one-row query and copies the column into your variable (via a pointer). <b>Why:</b> QueryRow for exactly-one-row; Scan fills &email. If no row matched, Scan returns sql.ErrNoRows — that's your 404.</p></div>
         </details>
         <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./11-mysql
 connected ✓
 new user id: 1
 stored: asha@example.com</pre></div>
-        <p class="use"><b>Notice:</b> <code>UNIQUE</code> on email means a duplicate signup makes the INSERT error — your handler turns that into a 409; the database enforces a business rule for free. (<code>DROP TABLE</code> just keeps the demo rerunnable.)</p>
+        <p class="use"><b>Notice:</b> <code>UNIQUE</code> on email means a duplicate signup makes the INSERT error — your handler turns that into a 409, the database enforcing a business rule for free. (<code>DROP TABLE</code> just keeps the demo rerunnable.)</p>
       </article>
 
-      <article class="card" data-kw="graceful shutdown sigterm deploy drain orders kubernetes signal">
+      <article class="card" data-kw="graceful shutdown sigterm deploy drain orders kubernetes signal real">
         <h3><span class="num">12</span> graceful shutdown <span class="tag">production</span></h3>
         <p class="what">Deploy day for the orders API — SIGTERM arrives, it stops taking orders and finishes the open ones.</p>
         <p class="eli"><b>💡 Everyday version:</b> closing a restaurant properly: lock the front door (stop accepting), let seated guests finish (drain in-flight requests), then lights out. Kubernetes is the landlord — it rings the bell (SIGTERM) and cuts power ~30s later. Skip this and every deploy hangs up on users mid-request.</p>
@@ -1034,13 +1247,13 @@ func main() {
 	}
 	fmt.Println("all in-flight requests served — clean exit ✓")
 }</code></pre></div>
-                <details class="lbl"><summary>📖 Line by line — what &amp; why</summary>
+        <details class="lbl"><summary>📖 Line by line — what &amp; why</summary>
           <div class="ln"><code>srv := &http.Server{Addr: ":8091"}</code><p><b>What:</b> builds the server as a value we keep a reference to. <b>Why:</b> the usual one-liner http.ListenAndServe gives you no handle — and you need the handle to call .Shutdown() on it later.</p></div>
-          <div class="ln"><code>ctx, stop := signal.NotifyContext(…, os.Interrupt, syscall.SIGTERM)</code><p><b>What:</b> a context that cancels itself when Ctrl-C (Interrupt) or SIGTERM arrives. <b>Why:</b> SIGTERM is what Kubernetes/Docker send before killing a container. This one line converts “OS signal” into the same ctx.Done() mechanism as program 07.</p></div>
+          <div class="ln"><code>ctx, stop := signal.NotifyContext(…, os.Interrupt, syscall.SIGTERM)</code><p><b>What:</b> a context that cancels itself when Ctrl-C (Interrupt) or SIGTERM arrives. <b>Why:</b> SIGTERM is what Kubernetes/Docker send before killing a container. This one line converts "OS signal" into the same ctx.Done() mechanism as program 07.</p></div>
           <div class="ln"><code>go srv.ListenAndServe()</code><p><b>What:</b> serve traffic in a goroutine. <b>Why:</b> it blocks forever, and main has other work: standing guard for the signal.</p></div>
           <div class="ln"><code>go func() { time.Sleep(300ms); syscall.Kill(os.Getpid(), syscall.SIGTERM) }()</code><p><b>What:</b> the demo trick: after 300ms, the program sends ITSELF a SIGTERM. <b>Why:</b> simulates deploy day so you can watch the sequence. Delete this goroutine and the program waits for your real Ctrl-C.</p></div>
-          <div class="ln"><code><-ctx.Done()</code><p><b>What:</b> main parks here — receiving from a channel blocks — until the signal lands. <b>Why:</b> the cheapest possible “wait”: no loop, no polling, zero CPU.</p></div>
-          <div class="ln"><code>shCtx, cancel := context.WithTimeout(…, 5*time.Second)</code><p><b>What:</b> a deadline for the drain itself. <b>Why:</b> k8s force-kills ~30s after SIGTERM. Your drain must finish before that — 5s says “finish open requests, but don't wait forever on a stuck one”.</p></div>
+          <div class="ln"><code><-ctx.Done()</code><p><b>What:</b> main parks here — receiving from a channel blocks — until the signal lands. <b>Why:</b> the cheapest possible "wait": no loop, no polling, zero CPU.</p></div>
+          <div class="ln"><code>shCtx, cancel := context.WithTimeout(…, 5*time.Second)</code><p><b>What:</b> a deadline for the drain itself. <b>Why:</b> k8s force-kills ~30s after SIGTERM. Your drain must finish before that — 5s says "finish open requests, but don't wait forever on a stuck one".</p></div>
           <div class="ln"><code>srv.Shutdown(shCtx)</code><p><b>What:</b> stops accepting NEW connections, waits for in-flight requests to complete, then returns. <b>Why:</b> this is the graceful part. The alternative — just exiting — resets every open connection: users see errors on every deploy.</p></div>
         </details>
         <div class="term"><div class="tbar">terminal</div><pre><span class="prompt">$</span> go run ./12-shutdown

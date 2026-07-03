@@ -1,10 +1,10 @@
-conn 3 sent → asha@example.com
-conn 1 sent → ravi@example.com
-conn 2 sent → meera@example.com
-conn 2 sent → divya@example.com
-conn 3 sent → arjun@example.com
-conn 1 sent → karan@example.com
-conn 2 sent → rahul@example.com
-conn 3 sent → nisha@example.com
-conn 1 sent → sneha@example.com
-9 emails on 3 connections = 300ms
+conn 3 shipped order #1
+conn 1 shipped order #2
+conn 3 shipped order #4
+conn 2 shipped order #3
+conn 1 shipped order #5
+conn 2 shipped order #6
+conn 3 shipped order #7
+conn 1 shipped order #8
+conn 2 shipped order #9
+9/9 orders shipped, in 7ms

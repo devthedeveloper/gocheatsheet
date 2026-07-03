@@ -1,5 +1,5 @@
-GET /dashboard → calling 3 services…
-profile-service answered in 100ms
-notifications-service answered in 180ms
-orders-service answered in 250ms
+GET /dashboard → 3 real queries, in parallel…
+users:   500
+orders:  1200
+revenue: ₹250800.00
 200 OK — response assembled ✓

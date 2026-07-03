@@ -1,39 +1,65 @@
-// worker pool: 9 newsletters, only 3 SMTP connections.
+// worker pool: 9 pending orders, only 3 DB connections fulfilling them.
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"sync"
 	"time"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
+func setup(db *sql.DB) {
+	db.Exec("DROP TABLE IF EXISTS fulfillment")
+	db.Exec(`CREATE TABLE fulfillment (
+		id INT PRIMARY KEY, status VARCHAR(20))`)
+	for i := 1; i <= 9; i++ {
+		db.Exec("INSERT INTO fulfillment VALUES (?, 'pending')", i)
+	}
+}
+
 func main() {
+	db, err := sql.Open("mysql",
+		"root:secret@tcp(localhost:3306)/notes")
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(3) // the pool really can't exceed 3 connections
+	setup(db)
+
 	start := time.Now()
-	queue := make(chan string)
+	orderIDs := make(chan int)
 	var wg sync.WaitGroup
 
-	for conn := 1; conn <= 3; conn++ { // 3 connections
+	for conn := 1; conn <= 3; conn++ { // 3 real DB connections
 		wg.Add(1)
-		go func() {
+		go func(conn int) {
 			defer wg.Done()
-			for email := range queue { // until closed
-				time.Sleep(100 * time.Millisecond) // send
-				fmt.Printf("conn %d sent → %s\n",
-					conn, email)
+			for id := range orderIDs { // until closed
+				// a REAL write, through a REAL pooled connection
+				_, err := db.Exec(
+					"UPDATE fulfillment SET status='shipped' WHERE id=?",
+					id)
+				if err != nil {
+					fmt.Println("update failed:", err)
+					continue
+				}
+				fmt.Printf("conn %d shipped order #%d\n", conn, id)
 			}
-		}()
+		}(conn)
 	}
 
-	users := []string{
-		"asha", "ravi", "meera", "arjun", "divya",
-		"karan", "nisha", "rahul", "sneha",
+	for i := 1; i <= 9; i++ {
+		orderIDs <- i
 	}
-	for _, u := range users {
-		queue <- u + "@example.com"
-	}
-	close(queue) // newsletter fully queued
+	close(orderIDs)
 	wg.Wait()
 
-	fmt.Printf("9 emails on 3 connections = %v\n",
-		time.Since(start).Round(10*time.Millisecond))
+	var shipped int
+	db.QueryRow("SELECT COUNT(*) FROM fulfillment WHERE status='shipped'").
+		Scan(&shipped)
+	fmt.Printf("%d/9 orders shipped, in %v\n",
+		shipped, time.Since(start).Round(time.Millisecond))
 }

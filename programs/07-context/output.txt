@@ -1,5 +1,4 @@
-processed batch 1 (10k rows)
-processed batch 2 (10k rows)
-processed batch 3 (10k rows)
+generating report (query takes 5s)…
+took: 401ms
 aborting report: context deadline exceeded
 handler: told client 504, moved on

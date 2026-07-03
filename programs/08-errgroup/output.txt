@@ -1,4 +1,4 @@
-shipping-service → OK
-inventory-service → OK
-checkout failed: payment-service: card declined
-→ respond 402, release the stock
+inventory-service → reserved 1 boat-airdopes
+shipping-service → shipment created
+checkout failed: payment-service: insufficient balance
+→ respond 402, release the reserved stock

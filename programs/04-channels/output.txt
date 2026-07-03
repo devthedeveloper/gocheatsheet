@@ -1,7 +1,7 @@
 upload complete: invoice_jan.pdf
 upload complete: invoice_feb.pdf
-  virus-scanned: invoice_jan.pdf
-  virus-scanned: invoice_feb.pdf
+  sha256 3c874aa89195e58c4ec55edf  invoice_jan.pdf
+  sha256 2121a3ff48d8443591818343  invoice_feb.pdf
 upload complete: salary_slip.pdf
-  virus-scanned: salary_slip.pdf
+  sha256 8efcbd928fa1c3b3340bc80d  salary_slip.pdf
 all uploads processed ✓

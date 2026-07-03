@@ -1,6 +1,3 @@
-connecting to SMTP for meera@example.com
-connecting to SMTP for ravi@example.com
-connecting to SMTP for asha@example.com
-✉️  delivered to asha@example.com
-✉️  delivered to ravi@example.com
-✉️  delivered to meera@example.com
+✉️  delivered ✓
+✉️  delivered ✓
+✉️  delivered ✓
