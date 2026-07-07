@@ -33,6 +33,7 @@ type application struct {
 	config config
 	logger *slog.Logger
 	store  *store.Store
+	feed   *feedCache
 }
 
 func main() {
@@ -71,6 +72,7 @@ func main() {
 		config: cfg,
 		logger: logger,
 		store:  st,
+		feed:   newFeedCache(time.Second), // the front page is the same for everyone
 	}
 
 	srv := &http.Server{

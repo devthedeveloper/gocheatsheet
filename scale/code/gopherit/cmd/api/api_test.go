@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"gopherit/internal/store"
 )
@@ -28,6 +29,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 		config: config{env: "test"},
 		logger: slog.New(slog.NewTextHandler(io.Discard, nil)), // silence logs
 		store:  st,
+		feed:   newFeedCache(time.Second),
 	}
 
 	ts := httptest.NewServer(app.routes())

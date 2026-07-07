@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -102,13 +103,23 @@ func (app *application) listPostsHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	posts, meta, err := app.store.ListPosts(filters)
+	// Serve the front page from the cache: everyone asking for the same
+	// sort/page gets the same bytes for up to the TTL, and only one goroutine
+	// ever rebuilds a given page (singleflight guards the thundering herd).
+	body, err := app.feed.fetch(r.URL.RawQuery, func() ([]byte, error) {
+		posts, meta, err := app.store.ListPosts(filters)
+		if err != nil {
+			return nil, err
+		}
+		return json.MarshalIndent(envelope{"posts": posts, "meta": meta}, "", "\t")
+	})
 	if err != nil {
 		app.serverError(w, r, err)
 		return
 	}
 
-	app.writeJSON(w, http.StatusOK, envelope{"posts": posts, "meta": meta})
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(body)
 }
 
 // listSubredditPostsHandler — GET /api/v1/subreddits/{name}/posts
