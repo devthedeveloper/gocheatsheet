@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 8 · Graduate to Postgres — Go + Scale</title>
+<link rel="stylesheet" href="../ebook/fonts/fonts.css">
+<link rel="stylesheet" href="../ebook/notes.css">
+<link rel="stylesheet" href="scale.css">
+<script src="../ebook/notes.js" defer></script>
+</head>
+<body>
+<div class="sheet">
+
+<nav class="booknav">
+  <a href="ch07.html">← Ch 7 · The Login Problem</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch09.html">Ch 9 · Clones →</a>
+</nav>
+
+<header class="chapter-head">
+  <div class="ch-sticker" style="--sticker:#d9f7cd"><small>chapter</small><span>8</span></div>
+  <div>
+    <h1>Graduate to Postgres</h1>
+    <svg class="squiggle" viewBox="0 0 420 14" aria-hidden="true"><path d="M4 9 Q 40 2, 80 8 T 160 8 T 240 7 T 320 9 T 416 6" fill="none" stroke="#2fa15c" stroke-width="4" stroke-linecap="round"/></svg>
+    <p class="subtitle">when one writer really is the wall — and how the store seam makes the move painless</p>
+  </div>
+</header>
+
+<div class="sticky">
+  <h4>In this chapter you'll learn ✍️</h4>
+  <ul>
+    <li>how to know it's <em>actually</em> time to leave SQLite (measure, don't guess)</li>
+    <li>the store interface as a seam: swap databases, keep handlers</li>
+    <li>the concrete diffs: driver, placeholders, pool sizing</li>
+    <li>why handlers change zero lines</li>
+  </ul>
+</div>
+
+<h2><span class="swipe">First: is SQLite really the wall?</span></h2>
+
+<p>SQLite allows exactly one writer at a time. For a read-heavy site that's often fine for a
+surprisingly long way — we're serving 21,000 reads/s. But when your <em>writes</em> (votes, posts,
+comments) genuinely can't keep up — when a write-heavy benchmark shows requests queuing on the single
+writer and your p99 climbs no matter what else you tune — that's the signal. <span class="hl p">Not
+before. Postgres is more power and more operational cost; adopt it when the data says to, not because
+a blog post said “SQLite doesn't scale.”</span></p>
+
+<div class="box warn">
+  <span class="box-title">Honesty box: what's measured here</span>
+  <p>Every other chapter's numbers come from live runs. This chapter is different: it's the
+  <em>migration recipe</em>, shown as real, correct code, not a benchmark. The point isn't “Postgres
+  is X× faster” (it depends entirely on your workload) — it's that a clean store layer makes the swap
+  a contained change. Run the numbers on <em>your</em> write workload before and after; that's the
+  only comparison that means anything.</p>
+</div>
+
+<h2><span class="swipe teal">The seam pays off</span></h2>
+
+<p>Back in the Reddit book we were strict about one thing: <strong>all SQL lives in the
+<code>store</code> package; handlers never touch the database directly.</strong> That discipline
+felt like bookkeeping then. Here's the payoff — the entire database swap happens behind that seam.
+Turn the concrete <code>*store.Store</code> into an interface the handlers depend on:</p>
+
+<div class="code-card"><span class="filename">the store as an interface (the seam)</span>
+<pre><code class="lang-go">// Handlers depend on this interface, not on SQLite specifically.
+type Store interface {
+	ListPosts(ctx context.Context, f PostFilters) ([]Post, Meta, error)
+	CreatePost(ctx context.Context, ...) (*Post, error)
+	Vote(ctx context.Context, ...) (int64, error)
+	// ...the rest of the methods
+}
+
+// Two implementations satisfy it; a flag picks one at start-up.
+func openStore(driver, dsn string) (Store, error) {
+	switch driver {
+	case "postgres":
+		return openPostgres(dsn)
+	default:
+		return openSQLite(dsn)
+	}
+}</code></pre>
+</div>
+
+<h2><span class="swipe pink">The three concrete changes</span></h2>
+
+<p>Moving a query from SQLite to Postgres is smaller than you'd fear — three mechanical differences:</p>
+
+<div class="tbl-scroll">
+<table class="notes">
+  <tr><th>Thing</th><th>SQLite</th><th>Postgres</th></tr>
+  <tr><td>driver import</td><td><code>modernc.org/sqlite</code></td><td><code>github.com/jackc/pgx/v5/stdlib</code></td></tr>
+  <tr><td>placeholders</td><td><code>?, ?, ?</code></td><td><code>$1, $2, $3</code></td></tr>
+  <tr><td>pool sizing</td><td>readers share WAL; writes serialize</td><td>size <code>SetMaxOpenConns</code> to your core count &amp; PG's <code>max_connections</code></td></tr>
+</table>
+</div>
+
+<div class="code-card"><span class="filename">a query, ported</span>
+<pre><code class="lang-go">// SQLite:
+s.db.QueryContext(ctx,
+	`SELECT id, title FROM posts WHERE subreddit_id = ? ORDER BY hotness DESC LIMIT ?`,
+	subID, limit)
+
+// Postgres — same query, numbered placeholders:
+s.db.QueryContext(ctx,
+	`SELECT id, title FROM posts WHERE subreddit_id = $1 ORDER BY hotness DESC LIMIT $2`,
+	subID, limit)</code></pre>
+</div>
+
+<p>Spin up Postgres locally to develop against — one command:</p>
+
+<div class="term-card"><div class="term-bar"><i></i><i></i><i></i><span>terminal</span></div>
+<pre><code class="lang-bash">$ docker run -d --name pg -e POSTGRES_PASSWORD=dev -p 5432:5432 postgres:16
+$ ./gopherit -db postgres -dsn "postgres://postgres:dev@localhost:5432/postgres"</code></pre>
+</div>
+
+<p>And the loudest sentence in this book: <span class="hl y">the handler files change zero lines.</span>
+Every <code>users.go</code>, <code>posts.go</code>, <code>votes.go</code> handler still calls
+<code>app.store.ListPosts(...)</code>. They never knew which database answered. <em>That</em> is what
+the store layer bought you — the freedom to change your mind about the biggest infrastructure decision
+in your app without touching your business logic.</p>
+
+<div class="box deep">
+  <span class="box-title">Pool sizing rules of thumb</span>
+  <p><code>SetMaxOpenConns</code>: start near your CPU core count for a CPU-bound workload, higher for
+  IO-bound; never exceed Postgres's <code>max_connections</code> (minus headroom for other clients —
+  or put PgBouncer in front). <code>SetConnMaxLifetime</code> (~5 min) recycles connections so a
+  rolling database restart doesn't strand them. Measure p99 as you raise the pool: it improves, then
+  plateaus, then gets <em>worse</em> as you oversubscribe the database. Stop at the plateau.</p>
+</div>
+
+<div class="box gotcha">
+  <span class="box-title">Migrations become real now</span>
+  <p>Our SQLite migration was “<code>CREATE TABLE IF NOT EXISTS</code> on start-up.” Once data lives in
+  Postgres and matters, adopt numbered, reversible migration files with a tool like
+  <code>goose</code> or <code>golang-migrate</code> — so schema changes are replayable and a bad one
+  can be rolled back. The training wheels come off with the training database.</p>
+</div>
+
+<div class="recap">
+<h2><span class="swipe">Pin to your brain 📌</span></h2>
+<ul class="checklist">
+  <li>Leave SQLite when a <em>write</em> benchmark proves the single writer is your wall — not before.</li>
+  <li>Depend on a store <em>interface</em>; a flag picks SQLite or Postgres at start-up.</li>
+  <li>The port is mechanical: driver, <code>$1</code> placeholders, pool sizing. Handlers don't change.</li>
+  <li>Real data → real migrations (goose / golang-migrate), not <code>IF NOT EXISTS</code>.</li>
+</ul>
+<p><b>Next up:</b> one big box has limits. What if we just run several copies of gopherit at once?</p>
+</div>
+
+<nav class="booknav bottom">
+  <a href="ch07.html">← Ch 7 · The Login Problem</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch09.html">Ch 9 · Clones →</a>
+</nav>
+
+</div>
+</body>
+</html>

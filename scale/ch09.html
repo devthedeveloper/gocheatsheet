@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 9 · Clones — Go + Scale</title>
+<link rel="stylesheet" href="../ebook/fonts/fonts.css">
+<link rel="stylesheet" href="../ebook/notes.css">
+<link rel="stylesheet" href="scale.css">
+<script src="../ebook/notes.js" defer></script>
+</head>
+<body>
+<div class="sheet">
+
+<nav class="booknav">
+  <a href="ch08.html">← Ch 8 · Postgres</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch10.html">Ch 10 · Watch It Breathe →</a>
+</nav>
+
+<header class="chapter-head">
+  <div class="ch-sticker" style="--sticker:#e6dbff"><small>chapter</small><span>9</span></div>
+  <div>
+    <h1>Clones</h1>
+    <svg class="squiggle" viewBox="0 0 420 14" aria-hidden="true"><path d="M4 9 Q 40 2, 80 8 T 160 8 T 240 7 T 320 9 T 416 6" fill="none" stroke="#7c5cff" stroke-width="4" stroke-linecap="round"/></svg>
+    <p class="subtitle">run several copies behind a proxy — and pay the price of no longer being alone</p>
+  </div>
+</header>
+
+<div class="sticky">
+  <h4>In this chapter you'll learn ✍️</h4>
+  <ul>
+    <li>vertical vs horizontal scaling — bigger box vs more boxes</li>
+    <li>why gopherit is ready to clone (it's stateless — by design)</li>
+    <li>a load balancer in five lines</li>
+    <li>what breaks when you clone: per-instance state</li>
+  </ul>
+</div>
+
+<h2><span class="swipe">Two ways to get bigger</span></h2>
+
+<p>When one machine isn't enough, you have two moves. <strong>Vertical</strong>: a bigger machine —
+simplest, but there's a ceiling and the price climbs fast. <strong>Horizontal</strong>: more machines
+running the same code, sharing the load — nearly unlimited, and what every large system eventually
+does. The catch is that horizontal scaling only works if your app is <em>stateless</em>: any instance
+can serve any request, because no instance holds anything private about a user's session.</p>
+
+<div class="box tip">
+  <span class="box-title">gopherit was born ready</span>
+  <p>Remember the Reddit book choosing <b>bearer tokens</b> over server-side sessions? That decision
+  pays off right now. gopherit keeps <em>nothing</em> in memory about who's logged in — the token in
+  the request header is the whole story, and the database is the shared source of truth. So we can run
+  ten copies and any of them can serve any request. <span class="hl y">Statelessness isn't a scaling
+  feature you bolt on; it's a design choice you make early and cash in later.</span></p>
+</div>
+
+<h2><span class="swipe teal">Three gophers behind one door</span></h2>
+
+<p>Run three instances on different ports, and put a <strong>load balancer</strong> in front to spread
+requests across them. Any reverse proxy does this; here's <a href="https://caddyserver.com/">Caddy</a>
+in five lines:</p>
+
+<div class="code-card"><span class="filename">Caddyfile — round-robin across three instances</span>
+<pre><code class="lang-bash">:8080 {
+	reverse_proxy localhost:4001 localhost:4002 localhost:4003 {
+		lb_policy round_robin
+	}
+}</code></pre>
+</div>
+
+<div class="term-card"><div class="term-bar"><i></i><i></i><i></i><span>terminal</span></div>
+<pre><code class="lang-bash">$ ./gopherit -port 4001 -dsn "postgres://..." &
+$ ./gopherit -port 4002 -dsn "postgres://..." &
+$ ./gopherit -port 4003 -dsn "postgres://..." &
+$ caddy run   # now http://localhost:8080 fans out across all three</code></pre>
+</div>
+
+<p>Traffic now spreads three ways. (They must share one database — Postgres from the last chapter, not
+three separate SQLite files.) Add a fourth instance, a fifth; scale until the <em>database</em> becomes
+the bottleneck, which is the natural next wall.</p>
+
+<h2><span class="swipe pink">What clones break: private state</span></h2>
+
+<p>Cloning exposes a subtle bug in two things we built. Both the <strong>feed cache</strong> (chapter 5)
+and the <strong>rate limiter</strong> (chapter 7) live <em>inside one process</em>. With three
+instances, you now have three separate caches and three separate limiters:</p>
+
+<div class="flow">
+  <div class="node o">cache ×3<small>3 copies, 3× the DB misses,<br>up to 3× the staleness window</small></div>
+  <div class="arrow">·</div>
+  <div class="node v">limiter ×3<small>an IP can do 3× the requests —<br>one per instance</small></div>
+</div>
+
+<p>The in-process versions still <em>work</em> — they're just less effective when split three ways. The
+fix is to move that shared state <em>out</em> of the processes into a store they all share:
+<strong>Redis</strong>. One shared cache, one shared limiter, all instances agreeing:</p>
+
+<div class="code-card"><span class="filename">the shared-cache idea (Redis) — ~20 lines</span>
+<pre><code class="lang-go">// Instead of an in-process map, GET/SET the cached feed bytes in Redis,
+// which every instance reads from and writes to. The handler barely changes —
+// swap app.feed.fetch(...) for a Redis GET, rebuild-and-SET on a miss.
+val, err := rdb.Get(ctx, "feed:"+key).Bytes()
+if err == redis.Nil {          // miss: one instance rebuilds and shares it
+	val = buildFeed()
+	rdb.Set(ctx, "feed:"+key, val, time.Second)
+}
+// Redis also has atomic INCR + EXPIRE — a shared rate limiter in a few lines.</code></pre>
+</div>
+
+<div class="box gotcha">
+  <span class="box-title">Don't reach for Redis too early</span>
+  <p>On a <em>single</em> instance, the in-process cache and limiter are <em>better</em> than Redis —
+  no network hop, less to operate. You only need shared state once you're running multiple instances
+  <em>and</em> the per-instance drift actually hurts. This is the whole book's discipline again: add
+  the shared cache when the metrics say the split is costing you, not because “real apps use Redis.”</p>
+</div>
+
+<div class="box deep">
+  <span class="box-title">The session-affinity myth</span>
+  <p>People reach for “sticky sessions” (pin each user to one instance) to make in-memory session state
+  work across clones. gopherit never needs it — there's no in-memory session to pin, because auth is a
+  stateless token. Sticky sessions are a workaround for a problem you avoided by design. Prefer
+  stateless-plus-shared-store over sticky-plus-local-state.</p>
+</div>
+
+<div class="recap">
+<h2><span class="swipe">Pin to your brain 📌</span></h2>
+<ul class="checklist">
+  <li>Vertical = bigger box (ceiling); horizontal = more boxes (needs statelessness).</li>
+  <li>Stateless auth (bearer tokens) is what makes gopherit safe to clone.</li>
+  <li>A load balancer round-robins requests across instances in a few lines.</li>
+  <li>In-process cache/limiter become per-instance when cloned; move them to Redis <em>when it hurts</em>.</li>
+</ul>
+<p><b>Next up:</b> three instances, a proxy, a database — more moving parts than you can watch by hand.
+Time to give the system a heartbeat monitor.</p>
+</div>
+
+<nav class="booknav bottom">
+  <a href="ch08.html">← Ch 8 · Postgres</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch10.html">Ch 10 · Watch It Breathe →</a>
+</nav>
+
+</div>
+</body>
+</html>

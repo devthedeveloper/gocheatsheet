@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 4 · Database Surgery — Go + Scale</title>
+<link rel="stylesheet" href="../ebook/fonts/fonts.css">
+<link rel="stylesheet" href="../ebook/notes.css">
+<link rel="stylesheet" href="scale.css">
+<script src="../ebook/notes.js" defer></script>
+</head>
+<body>
+<div class="sheet">
+
+<nav class="booknav">
+  <a href="ch03.html">← Ch 3 · Find the Bottleneck</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch05.html">Ch 5 · Cache Rules Everything →</a>
+</nav>
+
+<header class="chapter-head">
+  <div class="ch-sticker" style="--sticker:#d9f7cd"><small>chapter</small><span>4</span></div>
+  <div>
+    <h1>Database Surgery</h1>
+    <svg class="squiggle" viewBox="0 0 420 14" aria-hidden="true"><path d="M4 9 Q 40 2, 80 8 T 160 8 T 240 7 T 320 9 T 416 6" fill="none" stroke="#2fa15c" stroke-width="4" stroke-linecap="round"/></svg>
+    <p class="subtitle">the obvious fix disappoints — then one line takes us from 3 to 614 req/s</p>
+  </div>
+</header>
+
+<div class="sticky">
+  <h4>In this chapter you'll learn ✍️</h4>
+  <ul>
+    <li>why the “bigger connection pool” fix barely moves the needle</li>
+    <li>the indexes gopherit was missing — and how to prove they help</li>
+    <li>precomputing expensive values with a background goroutine</li>
+    <li>killing the window function: <b>3 → 614 req/s</b></li>
+  </ul>
+</div>
+
+<h2><span class="swipe">Fix #1: the obvious one (bigger pool)</span></h2>
+
+<p>gopherit shipped with a deliberately conservative setting from the last book:</p>
+
+<div class="code-card"><span class="filename">internal/store/store.go — the training wheels</span>
+<pre><code class="lang-go">// SQLite allows only one writer at a time. Limiting the pool to a
+// single connection sidesteps "database is locked" errors entirely.
+db.SetMaxOpenConns(1)</code></pre>
+</div>
+
+<p>One connection for the <em>entire</em> server. Fifty concurrent readers all queue behind it,
+single file. Surely <em>that's</em> the bottleneck? SQLite in WAL mode (which gopherit already uses)
+allows many readers at once, so let's open the pool up and re-measure:</p>
+
+<div class="tbl-scroll">
+<table class="bench">
+  <tr><th>feed · 50 workers</th><th>req/s</th><th>p50</th><th>p99</th><th>errors</th></tr>
+  <tr class="base"><td>baseline (pool = 1)</td><td>3</td><td>8.3s</td><td>29.2s</td><td>23%</td></tr>
+  <tr><td>pool = 4</td><td class="win">6</td><td>5.2s</td><td>22.1s</td><td>9%</td></tr>
+</table>
+</div>
+
+<p>Double the throughput! And still <em>completely useless</em> — 6 req/s, five-second waits. This is
+the most important lesson in the book: <span class="hl p">the fix everyone reaches for first was real,
+and almost irrelevant.</span> Four CPUs can run four copies of a terrible query slightly faster than
+one. The query is the problem. Chapter 3 already told us so — we just confirmed it costs money to
+ignore the profiler.</p>
+
+<h2><span class="swipe teal">Fix #2: the indexes it never had</span></h2>
+
+<p>The profiler and EXPLAIN pointed at the feed query and the vote/score lookups, all of which scan.
+Let's add the indexes they need — on the votes table (looked up by target) and on the columns the feed
+sorts by. We do it as an idempotent migration that runs on every start-up:</p>
+
+<div class="code-card"><span class="filename">internal/store/store.go — the performance migration</span>
+<pre><code class="lang-go" data-src="final:internal/store/store.go#func migratePerf">// migratePerf applies Chapter 4's performance fixes: a precomputed hotness
+// column and the indexes the feed and the token/vote lookups were missing.
+// It is idempotent, so it runs safely on every start-up.
+func (s *Store) migratePerf() error {
+	// ADD COLUMN is not idempotent; tolerate "duplicate column" on re-runs.
+	if _, err := s.db.Exec(`ALTER TABLE posts ADD COLUMN hotness REAL NOT NULL DEFAULT 0`); err != nil &amp;&amp;
+		!strings.Contains(err.Error(), "duplicate column") {
+		return err
+	}
+	for _, q := range []string{
+		`CREATE INDEX IF NOT EXISTS idx_votes_target ON votes(target_type, target_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_posts_hotness ON posts(hotness DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_posts_score ON posts(score DESC)`,
+	} {
+		if _, err := s.db.Exec(q); err != nil {
+			return err
+		}
+	}
+	return s.RefreshHotness()
+}</code></pre>
+</div>
+
+<h2><span class="swipe pink">Fix #3: stop computing pow() on every request</span></h2>
+
+<p>The “hot” score is <code>score ÷ (age + 2)^1.5</code> — a <code>pow()</code> call per row. Computing
+it live means computing it 50,000 times per request. But hotness barely changes second to second, so
+why recompute it constantly? <span class="hl y">Precompute it into a column, and refresh it in the
+background.</span> A goroutine updates every post's hotness every 30 seconds:</p>
+
+<div class="code-card"><span class="filename">internal/store/store.go — refresh in the background</span>
+<pre><code class="lang-go" data-src="final:internal/store/store.go#func RefreshHotness">// RefreshHotness recomputes the cached hotness of every post. A background
+// goroutine calls it every 30s: the score is then at most 30s stale, which no
+// human can tell — and the feed no longer pays for pow() on every request.
+func (s *Store) RefreshHotness() error {
+	_, err := s.db.Exec(`
+		UPDATE posts SET hotness =
+			CAST(score AS REAL) / pow((julianday('now') - julianday(created_at)) * 24.0 + 2.0, 1.5)`)
+	return err
+}</code></pre>
+</div>
+
+<div class="code-card"><span class="filename">cmd/api/main.go — the ticker</span>
+<pre><code class="lang-go" data-src="final:cmd/api/main.go#L65-L75">	// Recompute post hotness in the background so the feed query never pays for
+	// pow() on the request path (chapter 4).
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := st.RefreshHotness(); err != nil {
+				logger.Error("hotness refresh failed", "error", err)
+			}
+		}
+	}()</code></pre>
+</div>
+
+<div class="box tip">
+  <span class="box-title">The essence of scaling, in one tradeoff</span>
+  <p>The hotness is now up to 30 seconds stale. Does any human refreshing a feed notice a score that's
+  30 seconds old? No. We traded a tiny, invisible amount of <em>freshness</em> for an enormous amount
+  of <em>speed</em>. Almost every scaling win is a trade like this — the skill is choosing trades
+  nobody can feel.</p>
+</div>
+
+<p>So — indexes added, hotness precomputed. Surely <em>now</em> the feed flies? Re-measure:</p>
+
+<div class="tbl-scroll">
+<table class="bench">
+  <tr><th>feed · 50 workers</th><th>req/s</th><th>p50</th><th>errors</th></tr>
+  <tr class="base"><td>baseline</td><td>3</td><td>8.3s</td><td>23%</td></tr>
+  <tr><td>+ pool = 4</td><td>6</td><td>5.2s</td><td>9%</td></tr>
+  <tr><td>+ indexes + precomputed hotness</td><td>6</td><td>4.8s</td><td>11%</td></tr>
+</table>
+</div>
+
+<p>Still 6 req/s. <em>Barely moved.</em> Frustrating — but the profiler already told us why in
+chapter 3, and we're about to collect the payoff. The indexes can't help while
+<strong class="pen-p"><code>COUNT(*) OVER()</code> forces a full scan and a temp-b-tree sort anyway.</strong>
+The window function is standing on the index's neck.</p>
+
+<h2><span class="swipe green">Fix #4: kill the window function</span></h2>
+
+<p>Remember the EXPLAIN: with <code>COUNT(*) OVER()</code>, <code>SCAN p</code> + <code>USE TEMP
+B-TREE</code>; without it, <code>SCAN p USING INDEX</code>. So we drop it. We fetch the page with the
+index, and get the total from a separate, cheap count query:</p>
+
+<div class="code-card"><span class="filename">internal/store/posts.go — the split query</span>
+<pre><code class="lang-go" data-src="final:internal/store/posts.go#func ListPosts">// ListPosts returns one page of the feed plus pagination metadata.
+//
+// The "hot" sort is the fun part: score divided by (age in hours + 2)
+// raised to 1.5 — fresh posts with a few votes beat old posts with many.
+// The +2 stops brand-new posts from dividing by (almost) zero.
+func (s *Store) ListPosts(f PostFilters) ([]Post, Meta, error) {
+	orderBy := map[string]string{
+		"new": "p.id DESC",
+		"top": "p.score DESC, p.id DESC",
+		"hot": "p.hotness DESC, p.id DESC",
+	}[f.Sort]
+	if orderBy == "" {
+		orderBy = "p.id DESC"
+	}
+
+	// hotness is now a precomputed column (refreshed by a background goroutine),
+	// so the feed no longer computes pow() per row.
+	//
+	// We dropped the old COUNT(*) OVER() window function. It looked convenient —
+	// data + total in one query — but it forced SQLite to scan and sort ALL
+	// matching posts on every request (EXPLAIN showed "SCAN p" + "USE TEMP B-TREE
+	// FOR ORDER BY"). Without it, the query walks idx_posts_hotness and stops
+	// after one page. We fetch the total separately, with a cheap count.
+	query := `
+        SELECT p.id, p.title, p.body, p.url, p.score, p.created_at,
+               u.username, sr.name,
+               (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id)
+        FROM posts p
+        JOIN users      u  ON u.id  = p.author_id
+        JOIN subreddits sr ON sr.id = p.subreddit_id
+        WHERE (? = 0 OR p.subreddit_id = ?)
+        ORDER BY ` + orderBy + `
+        LIMIT ? OFFSET ?`
+
+	offset := (f.Page - 1) * f.PageSize
+	rows, err := s.db.Query(query, f.SubredditID, f.SubredditID, f.PageSize, offset)
+	if err != nil {
+		return nil, Meta{}, err
+	}
+	defer rows.Close()
+
+	posts := []Post{}
+	for rows.Next() {
+		var p Post
+		err := rows.Scan(&amp;p.ID, &amp;p.Title, &amp;p.Body, &amp;p.URL, &amp;p.Score, &amp;p.CreatedAt,
+			&amp;p.Author, &amp;p.Subreddit, &amp;p.CommentCount)
+		if err != nil {
+			return nil, Meta{}, err
+		}
+		posts = append(posts, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, Meta{}, err
+	}
+
+	// The total is a count-only query (no joins, no sort) — cheap next to
+	// materialising every row.
+	var total int64
+	err = s.db.QueryRow(
+		`SELECT COUNT(*) FROM posts WHERE (? = 0 OR subreddit_id = ?)`,
+		f.SubredditID, f.SubredditID).Scan(&amp;total)
+	if err != nil {
+		return nil, Meta{}, err
+	}
+
+	meta := Meta{
+		Page:       f.Page,
+		PageSize:   f.PageSize,
+		Total:      total,
+		TotalPages: (total + int64(f.PageSize) - 1) / int64(f.PageSize),
+	}
+	return posts, meta, nil
+}</code></pre>
+</div>
+
+<p>One innocent-looking window function, deleted. Re-measure:</p>
+
+<div class="tbl-scroll">
+<table class="bench">
+  <tr><th>feed · 50 workers</th><th>req/s</th><th>p50</th><th>p99</th><th>errors</th></tr>
+  <tr class="base"><td>baseline</td><td>3</td><td>8.3s</td><td>29.2s</td><td>23%</td></tr>
+  <tr><td>+ pool = 4</td><td>6</td><td>5.2s</td><td>22.1s</td><td>9%</td></tr>
+  <tr><td>+ indexes + hotness</td><td>6</td><td>4.8s</td><td>21.5s</td><td>11%</td></tr>
+  <tr class="hero"><td>+ drop <code>COUNT(*) OVER()</code></td><td class="win">614</td><td>69ms</td><td>256ms</td><td>0%</td></tr>
+</table>
+</div>
+
+<div class="statline">
+  <span><span class="n base">6</span><span class="lab">req/s before</span></span>
+  <span class="arrow">⟶</span>
+  <span><span class="n win">614</span><span class="lab">req/s after</span></span>
+  <span class="arrow">·</span>
+  <span><span class="n win">120×</span><span class="lab">faster p50<br>(8.3s → 69ms)</span></span>
+</div>
+
+<p>A hundredfold jump from deleting one line — and notice that <em>all</em> the earlier fixes (the
+pool, the indexes) only paid off <em>after</em> this one, because they were being smothered by it.
+That's why you fix the profiled bottleneck, not the convenient one. <span class="hl y">Errors: gone.
+p50: from eight seconds to 69 milliseconds.</span></p>
+
+<div class="box gotcha">
+  <span class="box-title">We also gave up exact page counts</span>
+  <p>Our separate count is still a cheap scan; at truly massive scale you'd drop exact totals entirely
+  (notice real Reddit never says “page 3 of 4,197”) or cache them. Exact pagination totals are a
+  luxury that quietly costs a full scan — spend it only when you can afford it.</p>
+</div>
+
+<div class="recap">
+<h2><span class="swipe">Pin to your brain 📌</span></h2>
+<ul class="checklist">
+  <li>The “obvious” fix (bigger pool) doubled 3→6 and solved nothing. Fix the profiled bottleneck.</li>
+  <li>Add the indexes your <code>EXPLAIN</code> asks for; prove each one with a re-measure.</li>
+  <li>Precompute expensive values in the background; trade invisible staleness for huge speed.</li>
+  <li>Window functions and <code>COUNT(*) OVER()</code> can silently force full scans. 3 → 614 req/s.</li>
+</ul>
+<p><b>Next up:</b> 614 req/s is great. But the front page is the same bytes for everyone — why build
+it from the database at all? Time to cache.</p>
+</div>
+
+<nav class="booknav bottom">
+  <a href="ch03.html">← Ch 3 · Find the Bottleneck</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch05.html">Ch 5 · Cache Rules Everything →</a>
+</nav>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Go + Scale — Survive the Front Page</title>
+<link rel="stylesheet" href="../ebook/fonts/fonts.css">
+<link rel="stylesheet" href="../ebook/notes.css">
+<link rel="stylesheet" href="scale.css">
+<script src="../ebook/notes.js" defer></script>
+</head>
+<body>
+<div class="sheet">
+
+  <div style="text-align:center;padding:24px 0 8px">
+    <svg width="140" height="140" viewBox="0 0 120 120" aria-label="a hard-hat gopher" style="transform:rotate(-3deg)">
+      <rect x="18" y="24" width="84" height="94" rx="40" fill="#5bc8e0" stroke="#333047" stroke-width="3"/>
+      <circle cx="44" cy="58" r="13" fill="#fff" stroke="#333047" stroke-width="2.5"/>
+      <circle cx="76" cy="58" r="13" fill="#fff" stroke="#333047" stroke-width="2.5"/>
+      <circle cx="47" cy="60" r="4.5" fill="#333047"/><circle cx="73" cy="60" r="4.5" fill="#333047"/>
+      <ellipse cx="60" cy="74" rx="8" ry="6" fill="#f8e3c9" stroke="#333047" stroke-width="2.5"/>
+      <!-- hard hat -->
+      <path d="M26 40 q34 -30 68 0 Z" fill="#f5b301" stroke="#333047" stroke-width="3" stroke-linejoin="round"/>
+      <rect x="24" y="38" width="72" height="7" rx="3" fill="#f5b301" stroke="#333047" stroke-width="3"/>
+      <rect x="56" y="14" width="8" height="16" rx="2" fill="#ff8c1a" stroke="#333047" stroke-width="2.5"/>
+    </svg>
+
+    <h1 class="cover-title" style="font-size:clamp(38px,6.5vw,68px)"><span class="rest">Survive</span> the Front Page</h1>
+    <svg class="squiggle" viewBox="0 0 420 14" style="margin:0 auto" aria-hidden="true">
+      <path d="M4 9 Q 40 2, 80 8 T 160 8 T 240 7 T 320 9 T 416 6" fill="none" stroke="#ff5722" stroke-width="4" stroke-linecap="round"/>
+    </svg>
+    <p class="cover-sub">book 3 · scaling Go APIs by <b>measurement</b>, not guesswork —
+    take <a href="../ebook/index.html">gopherit</a> from falling over at 3 requests/second to
+    tens of thousands, one profiled fix at a time.</p>
+
+    <p style="margin-top:16px">
+      <span class="hl y">real benchmarks only</span> &nbsp;·&nbsp;
+      <span class="hl g">every number reproducible</span> &nbsp;·&nbsp;
+      <span class="hl b">build your own load tester</span> &nbsp;·&nbsp;
+      <span class="hl p">no k8s, no hand-waving</span>
+    </p>
+  </div>
+
+  <!-- the headline result, up front -->
+  <div class="statline">
+    <span><span class="n base">3</span><span class="lab">req/s at the start<br>(feed falls over)</span></span>
+    <span class="arrow">⟶</span>
+    <span><span class="n win">21,506</span><span class="lab">req/s at the end<br>(same laptop)</span></span>
+  </div>
+  <p style="text-align:center;font-family:var(--hand);font-size:20px;color:var(--ink-soft);margin-top:-6px">
+    a 7,000× swing — and the fix you'd guess first barely helped. That's the whole point.</p>
+
+  <div class="sticky blue">
+    <h4>Who this is for 🚀</h4>
+    <ul>
+      <li>you finished <a href="../ebook/index.html">Build Your Own Reddit</a> (or have a Go API of your own)</li>
+      <li>someone asked “can it handle a million users?” and you weren't sure</li>
+      <li>you want to <em>measure</em> a bottleneck, not cargo-cult a Redis into place</li>
+    </ul>
+  </div>
+
+  <h2><span class="swipe">The one idea</span></h2>
+  <p><strong class="pen-o">Scaling is measurement.</strong> Not architecture diagrams, not
+  “add more servers.” You put the system under real load, watch where it breaks, profile to find the
+  <em>actual</em> bottleneck (almost never the one you'd guess), fix that one thing, and measure
+  again. Every chapter walks this loop with real numbers you can reproduce on your own machine:</p>
+
+  <div class="loop">
+    <span class="step">load it</span><span class="a">→</span>
+    <span class="step">watch it break</span><span class="a">→</span>
+    <span class="step">profile</span><span class="a">→</span>
+    <span class="step">fix one thing</span><span class="a">→</span>
+    <span class="step">measure again</span><span class="a">↺</span>
+  </div>
+
+  <h2><span class="swipe teal">The eleven chapters</span></h2>
+  <div class="toc-grid">
+    <a class="toc-card" href="ch01.html"><span class="num">chapter 01</span><span class="name">The Hug of Death</span><span class="blurb">Your post hits #1. Napkin math from “millions of users” to real req/s, and why p99 &gt; averages.</span></a>
+    <a class="toc-card" href="ch02.html"><span class="num">chapter 02</span><span class="name">Build a Load Cannon</span><span class="blurb">Write <code>hammer</code>, a 150-line load tester. Seed 500k rows. Watch the feed collapse to 3 req/s.</span></a>
+    <a class="toc-card" href="ch03.html"><span class="num">chapter 03</span><span class="name">Find the Bottleneck</span><span class="blurb">pprof and <code>EXPLAIN QUERY PLAN</code>. The profiler points somewhere surprising.</span></a>
+    <a class="toc-card" href="ch04.html"><span class="num">chapter 04</span><span class="name">Database Surgery</span><span class="blurb">Pool size, indexes, a precomputed column — and the one-line window function that was killing everything. 3 → 614 req/s.</span></a>
+    <a class="toc-card" href="ch05.html"><span class="num">chapter 05</span><span class="name">Cache Rules Everything</span><span class="blurb">The front page is the same for everyone. Cache it (with singleflight): 614 → 21,506 req/s.</span></a>
+    <a class="toc-card" href="ch06.html"><span class="num">chapter 06</span><span class="name">Contexts &amp; Timeouts</span><span class="blurb">A request that can't be cancelled is a leak under load. Deadlines, cancellation, budgets.</span></a>
+    <a class="toc-card" href="ch07.html"><span class="num">chapter 07</span><span class="name">The Login Problem</span><span class="blurb">bcrypt is a DoS button (14 req/s pins every core). Per-IP rate limiting rejects the flood in 3ms.</span></a>
+    <a class="toc-card" href="ch08.html"><span class="num">chapter 08</span><span class="name">Graduate to Postgres</span><span class="blurb">When SQLite's one-writer ceiling is really the wall. The store seam pays off: handlers don't change.</span></a>
+    <a class="toc-card" href="ch09.html"><span class="num">chapter 09</span><span class="name">Clones</span><span class="blurb">Run three instances behind a proxy. What breaks when you scale out — and how shared state fixes it.</span></a>
+    <a class="toc-card" href="ch10.html"><span class="num">chapter 10</span><span class="name">Watch It Breathe</span><span class="blurb">You can't fix what you can't see at 3 a.m. Metrics, the four golden signals, what to actually alert on.</span></a>
+    <a class="toc-card" href="ch11.html"><span class="num">chapter 11</span><span class="name">The Rematch + the Map</span><span class="blurb">Re-run chapter 2 against the finished system. Then: the honest map of what you didn't need.</span></a>
+  </div>
+
+  <div class="box tip">
+    <span class="box-title">Everything here is real</span>
+    <p>Every throughput number in this book came from an actual run of the tools in
+    <a href="https://github.com/devthedeveloper/gocheatsheet/tree/main/scale/code">scale/code/</a>
+    on a 4-core machine. Your absolute numbers will differ; the <em>relative</em> jumps — and which
+    fix mattered — are the lesson. The <code>bench/</code> scripts reproduce every table.</p>
+  </div>
+
+  <span class="scribble o">the fix you'd reach for first (bigger connection pool) took us from 3 to 6 req/s. the real culprit was hiding in the query plan. 🔍</span>
+
+  <nav class="booknav bottom">
+    <a href="../ebook/index.html">← Reddit book</a>
+    <span class="spacer"></span>
+    <a href="ch01.html">Start → Ch 1 · The Hug of Death</a>
+  </nav>
+</div>
+</body>
+</html>

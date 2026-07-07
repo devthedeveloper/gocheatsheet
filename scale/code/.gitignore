@@ -1,0 +1,8 @@
+# build outputs and local databases
+gopherit
+api
+seed
+hammer
+*.db
+*.db-shm
+*.db-wal

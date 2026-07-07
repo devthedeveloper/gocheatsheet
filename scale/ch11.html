@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 11 · The Rematch + the Map — Go + Scale</title>
+<link rel="stylesheet" href="../ebook/fonts/fonts.css">
+<link rel="stylesheet" href="../ebook/notes.css">
+<link rel="stylesheet" href="scale.css">
+<script src="../ebook/notes.js" defer></script>
+</head>
+<body>
+<div class="sheet">
+
+<nav class="booknav">
+  <a href="ch10.html">← Ch 10 · Watch It Breathe</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="index.html">Cover →</a>
+</nav>
+
+<header class="chapter-head">
+  <div class="ch-sticker" style="--sticker:#ffe1c9"><small>chapter</small><span>11</span></div>
+  <div>
+    <h1>The Rematch + the Map</h1>
+    <svg class="squiggle" viewBox="0 0 420 14" aria-hidden="true"><path d="M4 9 Q 40 2, 80 8 T 160 8 T 240 7 T 320 9 T 416 6" fill="none" stroke="#ff5722" stroke-width="4" stroke-linecap="round"/></svg>
+    <p class="subtitle">the same load test, the finished system — and the honest map of what you didn't need</p>
+  </div>
+</header>
+
+<div class="sticky">
+  <h4>In this chapter you'll learn ✍️</h4>
+  <ul>
+    <li>the whole-book before/after, chapter by chapter</li>
+    <li>which fix actually mattered most (the data has opinions)</li>
+    <li>the map of what we <em>didn't</em> build — and when you'd need it</li>
+    <li>where to go deeper</li>
+  </ul>
+</div>
+
+<h2><span class="swipe">The rematch</span></h2>
+
+<p>Chapter 2 pointed <code>hammer</code> at the feed and gopherit fell over at 3 req/s. Same command,
+same hardware, same seeded database — now against the finished system:</p>
+
+<div class="term-card"><div class="term-bar"><i></i><i></i><i></i><span>hammer — feed, the finished gopherit</span></div>
+<pre><code class="lang-bash">$ ./hammer -url http://localhost:4000 -scenario feed -workers 50 -duration 15s
+─────────── results ───────────
+requests   : 322616 in 15.001s
+throughput : 21506 req/s
+errors     : 0 (0.00%)
+latency p50: 2ms
+latency p95: 6ms
+latency p99: 9ms
+latency max: 68ms
+───────────────────────────────</code></pre>
+</div>
+
+<div class="statline">
+  <span><span class="n base">3</span><span class="lab">req/s (ch 2)</span></span>
+  <span class="arrow">⟶</span>
+  <span><span class="n win">21,506</span><span class="lab">req/s (now)</span></span>
+  <span class="arrow">·</span>
+  <span><span class="n win">7,000×</span><span class="lab">throughput</span></span>
+</div>
+
+<p>And latency: p50 from <strong class="pen-p">8.3 seconds</strong> to
+<strong class="pen-t">2 milliseconds</strong>, with zero errors. The hug of death became a shrug — on
+the same laptop, no new machines.</p>
+
+<h2><span class="swipe teal">The whole journey, one table</span></h2>
+
+<div class="tbl-scroll">
+<table class="bench">
+  <tr><th>chapter · fix (feed, 50 workers)</th><th>req/s</th><th>p50</th><th>errors</th></tr>
+  <tr class="base"><td>ch 2 · baseline</td><td>3</td><td>8.3s</td><td>23%</td></tr>
+  <tr><td>ch 4 · bigger pool (the “obvious” fix)</td><td>6</td><td>5.2s</td><td>9%</td></tr>
+  <tr><td>ch 4 · + indexes + precomputed hotness</td><td>6</td><td>4.8s</td><td>11%</td></tr>
+  <tr><td>ch 4 · + drop <code>COUNT(*) OVER()</code></td><td>614</td><td>69ms</td><td>0%</td></tr>
+  <tr class="hero"><td>ch 5 · + cache + singleflight</td><td>21,506</td><td>2ms</td><td>0%</td></tr>
+</table>
+</div>
+
+<p>Look at the shape of that table and rank what mattered:</p>
+<ul class="checklist">
+  <li><strong>Caching</strong> gave the single biggest jump (614 → 21,506).</li>
+  <li><strong>The one deleted line of SQL</strong> was the unlock (6 → 614) — nothing else worked until it did.</li>
+  <li><strong>The connection pool</strong> — the fix everyone reaches for first — was worth 3 → 6, and nothing more.</li>
+</ul>
+<p><span class="hl y">If you'd started by adding connections and buying a bigger box, you'd have spent
+money and a week to get from 3 req/s to maybe 12. The profiler pointed at a window function instead.
+That's the entire thesis of this book.</span></p>
+
+<h2><span class="swipe pink">The map of what we didn't need</span></h2>
+
+<p>We hit tens of thousands of requests per second with an in-process cache, some indexes, a rate
+limiter, and (when writes demand it) Postgres. We never touched the buzzwords. Here's when you
+<em>would</em> — each with the trigger metric that tells you it's time:</p>
+
+<div class="tbl-scroll">
+<table class="notes">
+  <tr><th>Thing we skipped</th><th>Reach for it when…</th></tr>
+  <tr><td><b>CDN</b></td><td>you serve images/static assets, or users are geographically far — offload bytes to the edge</td></tr>
+  <tr><td><b>Read replicas</b></td><td>read load outgrows one database even after caching (rare — caching usually wins first)</td></tr>
+  <tr><td><b>Sharding</b></td><td>your <em>write</em> volume outgrows the biggest single database you can buy</td></tr>
+  <tr><td><b>Message queue</b></td><td>work can be done later (emails, thumbnails) — get it off the request path</td></tr>
+  <tr><td><b>Microservices</b></td><td>your <em>team</em> is too big to coordinate on one codebase — it's an org solution, not a perf one</td></tr>
+  <tr><td><b>Kubernetes</b></td><td>you're operating enough services that manual deploys hurt more than k8s complexity does</td></tr>
+  <tr><td><b>Multi-region</b></td><td>you need to survive a whole datacenter failing, or serve users on other continents with low latency</td></tr>
+</table>
+</div>
+
+<div class="box warn">
+  <span class="box-title">The trap of premature scale</span>
+  <p>Every item above adds real, permanent operational cost. Adopting them before the trigger metric
+  fires doesn't make you web-scale — it makes you slow to ship and expensive to run, solving problems
+  you don't have. <span class="hl y">The most senior move in this whole book is the restraint: measure
+  first, and add the smallest thing that fixes the number in front of you.</span></p>
+</div>
+
+<h2><span class="swipe green">Where to go deeper</span></h2>
+<div class="sticky green">
+  <h4>Keep learning 📚</h4>
+  <ul>
+    <li><b>Designing Data-Intensive Applications</b> (Kleppmann) — the definitive book on scaling data</li>
+    <li>the Go <a href="https://go.dev/blog/pprof">pprof</a> and <code>runtime/trace</code> docs — profiling for real</li>
+    <li><a href="https://use-the-index-luke.com/">Use the Index, Luke</a> — everything about database indexes</li>
+    <li>Google's <a href="https://sre.google/books/">SRE books</a> (free) — golden signals, alerting, on-call</li>
+  </ul>
+</div>
+
+<h2><span class="swipe blue">The trilogy, closed</span></h2>
+<p style="font-family:var(--hand);font-size:24px;text-align:center;margin:26px 0;transform:rotate(-.6deg)">
+<a href="../index.html">cheatsheet</a> →
+<a href="../warmup/index.html">linkboard</a> →
+<a href="../ebook/index.html">gopherit</a> →
+<span class="pen-o">gopherit at scale</span> 🚀</p>
+
+<p>You started not knowing how to write an API. You built one, then made it real, and now you can take
+it from falling over at three requests a second to serving tens of thousands — and, just as important,
+you know <em>why</em> each fix worked, and which ones to ignore. That last part — measuring instead of
+guessing, and adding the smallest thing that works — is the difference between someone who's read about
+scaling and someone who can actually do it.</p>
+
+<p style="text-align:center;font-family:var(--hand);font-size:30px;margin:30px 0"><span class="pen-t">Now go survive your own front page.</span> 🐹🚀</p>
+
+<div class="recap">
+<h2><span class="swipe">The whole book on one sticky note 📌</span></h2>
+<ul class="checklist">
+  <li>Scaling is measurement: load → break → profile → fix one thing → measure again.</li>
+  <li>Profile before you touch anything; the bottleneck is never where you'd guess.</li>
+  <li>Biggest read-path wins: fix the query (indexes, no window functions), then cache it.</li>
+  <li>Protect expensive endpoints (rate limits), bound every request (timeouts), watch p99.</li>
+  <li>Add Postgres / clones / Redis / the rest only when a metric proves you need them.</li>
+</ul>
+</div>
+
+<nav class="booknav bottom">
+  <a href="ch10.html">← Ch 10 · Watch It Breathe</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="../ebook/index.html">The Reddit book →</a>
+</nav>
+
+</div>
+</body>
+</html>

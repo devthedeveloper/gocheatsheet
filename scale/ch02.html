@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 2 · Build a Load Cannon — Go + Scale</title>
+<link rel="stylesheet" href="../ebook/fonts/fonts.css">
+<link rel="stylesheet" href="../ebook/notes.css">
+<link rel="stylesheet" href="scale.css">
+<script src="../ebook/notes.js" defer></script>
+</head>
+<body>
+<div class="sheet">
+
+<nav class="booknav">
+  <a href="ch01.html">← Ch 1 · Hug of Death</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch03.html">Ch 3 · Find the Bottleneck →</a>
+</nav>
+
+<header class="chapter-head">
+  <div class="ch-sticker" style="--sticker:#cdeeff"><small>chapter</small><span>2</span></div>
+  <div>
+    <h1>Build a Load Cannon</h1>
+    <svg class="squiggle" viewBox="0 0 420 14" aria-hidden="true"><path d="M4 9 Q 40 2, 80 8 T 160 8 T 240 7 T 320 9 T 416 6" fill="none" stroke="#2f80ed" stroke-width="4" stroke-linecap="round"/></svg>
+    <p class="subtitle">write your own load tester, seed a big database, and watch gopherit fall over</p>
+  </div>
+</header>
+
+<div class="sticky">
+  <h4>In this chapter you'll learn ✍️</h4>
+  <ul>
+    <li>a 150-line load tester built from goroutines, channels &amp; atomics</li>
+    <li>seeding half a million rows in seconds (bcrypt once, batch inserts)</li>
+    <li>how to capture a real baseline — throughput and the percentiles</li>
+    <li>the number that starts the book: <b>3 req/s</b></li>
+  </ul>
+</div>
+
+<h2><span class="swipe">A cannon, not a peashooter</span></h2>
+
+<p>To measure a server under load, you need something that generates load. Real tools exist
+(<code>k6</code>, <code>vegeta</code>, <code>wrk</code> — see the box below), but we'll write our own
+first, because <span class="hl y">understanding every number your tool prints is the whole point.</span>
+It's a perfect application of your <a href="../concurrency.html">concurrency</a> cheatsheet: a pool of
+worker goroutines, shared counters guarded by atomics, a slice of latencies behind a mutex.</p>
+
+<p>Here's the whole thing — <code>hammer</code>:</p>
+
+<div class="code-card"><span class="filename new">hammer/main.go</span>
+<pre><code class="lang-go" data-src="hammer:main.go">// hammer is a tiny HTTP load tester we build in chapter 2. It fires requests
+// from a pool of goroutine workers, records every latency, and prints the
+// numbers that actually matter: throughput, error rate, and p50/p95/p99.
+//
+// It is deliberately ~150 lines of standard library — the point is to
+// understand every number it prints. For serious work, reach for k6/vegeta/wrk.
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"io"
+	"log"
+	"math/rand"
+	"net/http"
+	"sort"
+	"sync"
+	"sync/atomic"
+	"time"
+)
+
+type result struct {
+	total   int64
+	errors  int64
+	mu      sync.Mutex
+	latency []time.Duration // guarded by mu
+}
+
+func (r *result) record(d time.Duration, ok bool) {
+	atomic.AddInt64(&amp;r.total, 1)
+	if !ok {
+		atomic.AddInt64(&amp;r.errors, 1)
+	}
+	r.mu.Lock()
+	r.latency = append(r.latency, d)
+	r.mu.Unlock()
+}
+
+func main() {
+	var (
+		base     = flag.String("url", "http://localhost:4000", "base URL")
+		workers  = flag.Int("workers", 50, "concurrent workers")
+		duration = flag.Duration("duration", 15*time.Second, "how long to run")
+		scenario = flag.String("scenario", "feed", "feed | mixed | login")
+		nTokens  = flag.Int("tokens", 20, "users to log in for authed scenarios")
+		nPosts   = flag.Int("posts", 50000, "highest seeded post id")
+		nUsers   = flag.Int("users", 10000, "highest seeded user id")
+	)
+	flag.Parse()
+
+	client := &amp;http.Client{Timeout: 30 * time.Second}
+
+	// Preflight: grab a pool of tokens for scenarios that write.
+	var tokens []string
+	if *scenario == "mixed" {
+		tokens = login(client, *base, *nTokens, *nUsers)
+		if len(tokens) == 0 {
+			log.Fatal("mixed scenario needs tokens but all logins failed")
+		}
+		log.Printf("logged in %d users", len(tokens))
+	}
+
+	res := &amp;result{}
+	deadline := time.Now().Add(*duration)
+	var wg sync.WaitGroup
+	log.Printf("firing: scenario=%s workers=%d duration=%s", *scenario, *workers, *duration)
+	realStart := time.Now()
+
+	for w := 0; w &lt; *workers; w++ {
+		wg.Add(1)
+		go func(seed int64) {
+			defer wg.Done()
+			rng := rand.New(rand.NewSource(seed))
+			for time.Now().Before(deadline) {
+				start := time.Now()
+				ok := doRequest(client, *base, *scenario, rng, tokens, *nPosts)
+				res.record(time.Since(start), ok)
+			}
+		}(int64(w) + 1)
+	}
+	wg.Wait()
+	report(res, time.Since(realStart))
+}
+
+// doRequest performs one request chosen by the scenario's weights.
+func doRequest(c *http.Client, base, scenario string, rng *rand.Rand, tokens []string, nPosts int) bool {
+	switch scenario {
+	case "login":
+		return post(c, base+"/api/v1/tokens", "",
+			map[string]any{"email": fmt.Sprintf("user%d@example.com", rng.Intn(10000)+1), "password": "password123"})
+	case "mixed":
+		n := rng.Intn(100)
+		switch {
+		case n &lt; 90: // 90% reads
+			return get(c, fmt.Sprintf("%s/api/v1/posts?sort=hot&amp;page=%d", base, rng.Intn(20)+1))
+		case n &lt; 97: // 7% votes
+			tok := tokens[rng.Intn(len(tokens))]
+			return post(c, fmt.Sprintf("%s/api/v1/posts/%d/vote", base, rng.Intn(nPosts)+1), tok,
+				map[string]any{"value": 1})
+		default: // 3% new posts
+			tok := tokens[rng.Intn(len(tokens))]
+			return post(c, base+"/api/v1/posts", tok,
+				map[string]any{"subreddit": fmt.Sprintf("sub%d", rng.Intn(200)+1),
+					"title": "load test post", "body": "hello"})
+		}
+	default: // "feed"
+		return get(c, fmt.Sprintf("%s/api/v1/posts?sort=hot&amp;page=%d", base, rng.Intn(20)+1))
+	}
+}
+
+func login(c *http.Client, base string, n, nUsers int) []string {
+	var tokens []string
+	for i := 1; i &lt;= n; i++ {
+		body, _ := json.Marshal(map[string]any{
+			"email": fmt.Sprintf("user%d@example.com", i), "password": "password123"})
+		resp, err := c.Post(base+"/api/v1/tokens", "application/json", bytes.NewReader(body))
+		if err != nil {
+			continue
+		}
+		var out struct {
+			Token string `json:"token"`
+		}
+		json.NewDecoder(resp.Body).Decode(&amp;out)
+		resp.Body.Close()
+		if out.Token != "" {
+			tokens = append(tokens, out.Token)
+		}
+	}
+	return tokens
+}
+
+func get(c *http.Client, url string) bool {
+	resp, err := c.Get(url)
+	if err != nil {
+		return false
+	}
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	return resp.StatusCode &lt; 400
+}
+
+func post(c *http.Client, url, token string, body map[string]any) bool {
+	b, _ := json.Marshal(body)
+	req, _ := http.NewRequest("POST", url, bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		return false
+	}
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	return resp.StatusCode &lt; 400
+}
+
+func report(r *result, elapsed time.Duration) {
+	r.mu.Lock()
+	lat := r.latency
+	r.mu.Unlock()
+	sort.Slice(lat, func(i, j int) bool { return lat[i] &lt; lat[j] })
+
+	pct := func(p float64) time.Duration {
+		if len(lat) == 0 {
+			return 0
+		}
+		i := int(p / 100 * float64(len(lat)))
+		if i &gt;= len(lat) {
+			i = len(lat) - 1
+		}
+		return lat[i]
+	}
+
+	rps := float64(r.total) / elapsed.Seconds()
+	fmt.Printf("\n─────────── results ───────────\n")
+	fmt.Printf("requests   : %d in %s\n", r.total, elapsed.Round(time.Millisecond))
+	fmt.Printf("throughput : %.0f req/s\n", rps)
+	fmt.Printf("errors     : %d (%.2f%%)\n", r.errors, 100*float64(r.errors)/float64(max(r.total, 1)))
+	fmt.Printf("latency p50: %s\n", pct(50).Round(time.Millisecond))
+	fmt.Printf("latency p95: %s\n", pct(95).Round(time.Millisecond))
+	fmt.Printf("latency p99: %s\n", pct(99).Round(time.Millisecond))
+	fmt.Printf("latency max: %s\n", pct(100).Round(time.Millisecond))
+	fmt.Printf("───────────────────────────────\n")
+}</code></pre>
+</div>
+
+<p>The shape to notice, because it's the shape of every load tester:</p>
+<ul>
+  <li><strong>N worker goroutines</strong> each loop until a deadline, firing requests as fast as the
+      server answers — so a slow server naturally means fewer requests, which is exactly what we want
+      to measure.</li>
+  <li><strong>Atomics</strong> (<code>atomic.AddInt64</code>) count total and errors without a lock;
+      a <strong>mutex</strong> guards the latency slice.</li>
+  <li><strong>report()</strong> sorts the latencies and pulls out p50/p95/p99 — never an average.</li>
+  <li>The <strong>scenarios</strong> (<code>feed</code>, <code>mixed</code>, <code>login</code>) weight
+      the endpoints like real traffic: mostly feed reads, a few votes and posts, or a flood of logins.</li>
+</ul>
+
+<div class="box tip">
+  <span class="box-title">The grown-up tools</span>
+  <p>For real load testing, reach for <a href="https://k6.io/">k6</a> (scriptable in JS),
+  <code>vegeta</code> (great for constant request rates), or <code>wrk</code> (brutally fast). They
+  do connection reuse, latency histograms, and coordinated-omission correction properly. But
+  <code>hammer</code> is enough to find our bottlenecks, and now you know what those tools are doing
+  under the hood.</p>
+</div>
+
+<h2><span class="swipe teal">Give it something to chew on</span></h2>
+
+<p>An empty database benchmarks nothing — every query is fast when there's one row. We need realistic
+scale: ten thousand users, fifty thousand posts, half a million votes. Doing that through the API
+would take hours (bcrypt alone!), so a <code>seed</code> command writes SQL directly, with two tricks:
+it hashes <em>one</em> password with bcrypt and reuses it, and it inserts rows in batches of a few
+hundred per statement.</p>
+
+<div class="code-card"><span class="filename new">gopherit/cmd/seed/main.go — the batch inserter</span>
+<pre><code class="lang-go" data-src="final:cmd/seed/main.go#type batcher">// batcher accumulates rows and flushes them as multi-row INSERT statements.
+type batcher struct {
+	tx     *sql.Tx
+	prefix string
+	cols   int
+	args   []any
+	rows   int
+}</code></pre>
+</div>
+
+<div class="term-card"><div class="term-bar"><i></i><i></i><i></i><span>terminal</span></div>
+<pre><code class="lang-bash">$ go run ./cmd/seed -dsn bench.db -users 10000 -subs 200 -posts 50000 -votes 500000
+seeding 10000 users...
+seeding 200 subreddits...
+seeding 50000 posts...
+seeding ~500000 votes...
+computing scores...
+done in 15.484s: 10000 users, 200 subs, 50000 posts, 499755 votes</code></pre>
+</div>
+
+<div class="box gotcha">
+  <span class="box-title">The seed hits the wall too</span>
+  <p>Computing every post's score means summing its votes — and with no index on the votes table,
+  that's a full scan of 500k votes <em>per post</em>. Left alone, the seed would run for hours. We
+  create a temporary index just for that step and drop it again, because the whole book depends on
+  gopherit starting <em>without</em> that index. The database's own slowness just previewed
+  Chapter 4.</p>
+</div>
+
+<h2><span class="swipe pink">Fire it: the baseline</span></h2>
+
+<p>Now the moment of truth. Start gopherit against the seeded database, point <code>hammer</code> at
+the feed with 50 concurrent workers for 15 seconds, and watch:</p>
+
+<div class="term-card"><div class="term-bar"><i></i><i></i><i></i><span>terminal</span></div>
+<pre><code class="lang-bash">$ ./gopherit -dsn bench.db &
+$ ./hammer -url http://localhost:4000 -scenario feed -workers 50 -duration 15s
+firing: scenario=feed workers=50 duration=15s
+
+─────────── results ───────────
+requests   : 109 in 32.592s
+throughput : 3 req/s
+errors     : 25 (22.94%)
+latency p50: 8.329s
+latency p95: 28.048s
+latency p99: 29.202s
+latency max: 29.756s
+───────────────────────────────</code></pre>
+</div>
+
+<div class="statline">
+  <span><span class="n base">3</span><span class="lab">req/s</span></span>
+  <span><span class="n base">8.3s</span><span class="lab">p50 latency</span></span>
+  <span><span class="n base">23%</span><span class="lab">errored (timed out)</span></span>
+</div>
+
+<p>This is a catastrophe, and it's <em>only reads</em> — nobody's even posting. Fifty people asking for
+the front page is enough to bring gopherit to its knees: a typical request waits
+<strong class="pen-p">eight seconds</strong>, and nearly a quarter time out entirely. If your post hit
+the front page right now, everyone would bounce.</p>
+
+<span class="scribble o">write it down: baseline = 3 req/s, p50 8.3s. this is the number we beat. 📉</span>
+
+<div class="box cheat">
+  <span class="box-title">Reproduce every number in this book</span>
+  <p>The <a href="https://github.com/devthedeveloper/gocheatsheet/tree/main/scale/code/bench">bench/run.sh</a>
+  script copies the seeded database, starts the server, fires <code>hammer</code>, and prints the
+  table — the same recipe behind every benchmark here. Absolute numbers depend on your hardware (these
+  are from a 4-core laptop); the <em>relative</em> jumps are what matter.</p>
+</div>
+
+<div class="recap">
+<h2><span class="swipe">Pin to your brain 📌</span></h2>
+<ul class="checklist">
+  <li>A load tester is worker goroutines + atomic counters + a sorted latency slice. ~150 lines.</li>
+  <li>Benchmark against realistic data; seed it fast with one bcrypt hash + batch inserts.</li>
+  <li>Baseline first, always — you can't claim an improvement without a “before.”</li>
+  <li>gopherit's before: <b>3 req/s, p50 8.3s, 23% errors</b> on a read-only feed.</li>
+</ul>
+<p><b>Next up:</b> 3 req/s — but <em>why?</em> Before we touch a line, we profile. The answer is not
+what you'd guess.</p>
+</div>
+
+<nav class="booknav bottom">
+  <a href="ch01.html">← Ch 1 · Hug of Death</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch03.html">Ch 3 · Find the Bottleneck →</a>
+</nav>
+
+</div>
+</body>
+</html>

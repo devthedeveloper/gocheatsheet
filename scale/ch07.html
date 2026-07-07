@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 7 · The Login Problem — Go + Scale</title>
+<link rel="stylesheet" href="../ebook/fonts/fonts.css">
+<link rel="stylesheet" href="../ebook/notes.css">
+<link rel="stylesheet" href="scale.css">
+<script src="../ebook/notes.js" defer></script>
+</head>
+<body>
+<div class="sheet">
+
+<nav class="booknav">
+  <a href="ch06.html">← Ch 6 · Contexts</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch08.html">Ch 8 · Graduate to Postgres →</a>
+</nav>
+
+<header class="chapter-head">
+  <div class="ch-sticker" style="--sticker:#ffd9e9"><small>chapter</small><span>7</span></div>
+  <div>
+    <h1>The Login Problem</h1>
+    <svg class="squiggle" viewBox="0 0 420 14" aria-hidden="true"><path d="M4 9 Q 40 2, 80 8 T 160 8 T 240 7 T 320 9 T 416 6" fill="none" stroke="#e94f8a" stroke-width="4" stroke-linecap="round"/></svg>
+    <p class="subtitle">bcrypt is slow on purpose — which makes login a denial-of-service button</p>
+  </div>
+</header>
+
+<div class="sticky">
+  <h4>In this chapter you'll learn ✍️</h4>
+  <ul>
+    <li>why your <em>most secure</em> endpoint is your most fragile one</li>
+    <li>measuring the bcrypt cliff: 50 logins pin every core</li>
+    <li>a per-IP token-bucket rate limiter (with a janitor goroutine)</li>
+    <li>turning a 3.4-second DoS into a 3-millisecond rejection</li>
+  </ul>
+</div>
+
+<h2><span class="swipe">Slow on purpose is a double edge</span></h2>
+
+<p>The Reddit book hashed passwords with bcrypt at cost 12 — deliberately slow (~250ms) so attackers
+can't brute-force stolen hashes. Good security. But <span class="hl p">“deliberately expensive” plus
+“anyone can call it” equals a denial-of-service button.</span> Every login burns a quarter-second of
+CPU <em>before</em> you even know the password is wrong. Point a crowd at <code>/tokens</code> and
+watch what happens. Let's measure it:</p>
+
+<div class="term-card"><div class="term-bar"><i></i><i></i><i></i><span>hammer — login flood, no defense</span></div>
+<pre><code class="lang-bash">$ ./hammer -scenario login -workers 50 -duration 10s
+─────────── results ───────────
+requests   : 164 in 11.367s
+throughput : 14 req/s
+errors     : 0 (0.00%)
+latency p50: 3.373s
+latency p95: 4.148s
+latency max: 4.671s
+───────────────────────────────</code></pre>
+</div>
+
+<div class="statline">
+  <span><span class="n base">14</span><span class="lab">logins/s max<br>(all 4 cores pinned)</span></span>
+  <span><span class="n base">3.4s</span><span class="lab">p50 wait</span></span>
+</div>
+
+<p>Fourteen requests a second saturates the entire machine. And here's the real damage: while bcrypt
+is chewing every core, <em>the 21,000-req/s feed we built is starved too.</em> One attacker with a
+laptop and a password list takes down the whole site — not by breaking in, just by knocking.</p>
+
+<h2><span class="swipe teal">The fix: reject the flood before bcrypt</span></h2>
+
+<p>The insight: we can't make bcrypt fast (that would defeat its purpose), but we can refuse to
+<em>run</em> it for an abusive client. A <strong>rate limiter</strong> caps how many requests any one
+IP may make per second, and rejects the excess with a cheap <code>429 Too Many Requests</code> —
+<span class="hl y">before</span> the request ever reaches the expensive handler.</p>
+
+<p>We use a <strong>token bucket</strong> (from <code>golang.org/x/time/rate</code>): each IP gets a
+bucket that refills at N tokens/second; each request spends one; an empty bucket means rejection. A
+per-IP map holds them, and a janitor goroutine evicts idle IPs so the map can't grow forever:</p>
+
+<div class="code-card"><span class="filename new">cmd/api/ratelimit.go</span>
+<pre><code class="lang-go" data-src="final:cmd/api/ratelimit.go">package main
+
+import (
+	"net"
+	"net/http"
+	"sync"
+	"time"
+
+	"golang.org/x/time/rate"
+)
+
+// rateLimit is a per-IP token-bucket limiter. bcrypt makes POST /tokens
+// expensive on purpose, which turns it into a denial-of-service target: a few
+// dozen concurrent logins pin every CPU. This middleware caps how fast any one
+// IP can hit us, rejecting the flood with a cheap 429 *before* it reaches
+// bcrypt — so real traffic keeps flowing.
+type ipLimiter struct {
+	mu      sync.Mutex
+	clients map[string]*client
+	rps     rate.Limit
+	burst   int
+}
+
+type client struct {
+	limiter  *rate.Limiter
+	lastSeen time.Time
+}
+
+func newIPLimiter(rps float64, burst int) *ipLimiter {
+	l := &amp;ipLimiter{clients: make(map[string]*client), rps: rate.Limit(rps), burst: burst}
+	// A janitor goroutine evicts IPs we haven't seen in a while, so the map
+	// can't grow without bound.
+	go func() {
+		for {
+			time.Sleep(time.Minute)
+			l.mu.Lock()
+			for ip, c := range l.clients {
+				if time.Since(c.lastSeen) &gt; 3*time.Minute {
+					delete(l.clients, ip)
+				}
+			}
+			l.mu.Unlock()
+		}
+	}()
+	return l
+}
+
+func (l *ipLimiter) allow(ip string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	c, ok := l.clients[ip]
+	if !ok {
+		c = &amp;client{limiter: rate.NewLimiter(l.rps, l.burst)}
+		l.clients[ip] = c
+	}
+	c.lastSeen = time.Now()
+	return c.limiter.Allow()
+}
+
+// rateLimit wraps a handler, rejecting over-limit IPs with 429. If no limiter
+// is configured (the -rate flag is 0) it does nothing.
+func (app *application) rateLimit(next http.Handler) http.Handler {
+	if app.limiter == nil {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			ip = r.RemoteAddr
+		}
+		if !app.limiter.allow(ip) {
+			w.Header().Set("Retry-After", "1")
+			app.errorResponse(w, http.StatusTooManyRequests, "rate limit exceeded — slow down")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}</code></pre>
+</div>
+
+<p>It slots into the middleware onion from the Reddit book — early, so rejections are cheap:</p>
+
+<div class="code-card"><span class="filename">cmd/api/routes.go — one more onion layer</span>
+<pre><code class="lang-go" data-src="final:cmd/api/routes.go#func routes">// routes builds the router. Go 1.22+ ServeMux understands
+// "METHOD /path/{param}" patterns, so we need zero external packages.
+func (app *application) routes() http.Handler {
+	mux := http.NewServeMux()
+
+	// Health &amp; metrics
+	mux.HandleFunc("GET /api/v1/healthz", app.healthzHandler)
+	mux.HandleFunc("GET /metrics", app.metricsHandler)
+
+	// Users &amp; auth
+	mux.HandleFunc("POST /api/v1/users", app.registerUserHandler)
+	mux.HandleFunc("POST /api/v1/tokens", app.loginHandler)
+
+	// Subreddits
+	mux.HandleFunc("GET /api/v1/subreddits", app.listSubredditsHandler)
+	mux.HandleFunc("POST /api/v1/subreddits", app.requireAuth(app.createSubredditHandler))
+	mux.HandleFunc("GET /api/v1/subreddits/{name}", app.getSubredditHandler)
+	mux.HandleFunc("GET /api/v1/subreddits/{name}/posts", app.listSubredditPostsHandler)
+
+	// Posts
+	mux.HandleFunc("GET /api/v1/posts", app.listPostsHandler)
+	mux.HandleFunc("POST /api/v1/posts", app.requireAuth(app.createPostHandler))
+	mux.HandleFunc("GET /api/v1/posts/{id}", app.getPostHandler)
+
+	// Comments &amp; votes
+	mux.HandleFunc("POST /api/v1/posts/{id}/comments", app.requireAuth(app.createCommentHandler))
+	mux.HandleFunc("POST /api/v1/posts/{id}/vote", app.requireAuth(app.votePostHandler))
+	mux.HandleFunc("POST /api/v1/comments/{id}/vote", app.requireAuth(app.voteCommentHandler))
+
+	// The middleware onion, outermost first: recover from panics, count metrics,
+	// log every request, rate-limit abusive IPs (cheap 429 before any real
+	// work), add CORS headers, then identify the caller.
+	return app.recoverPanic(app.metrics(app.logRequests(app.rateLimit(app.enableCORS(app.authenticate(mux))))))
+}</code></pre>
+</div>
+
+<h2><span class="swipe pink">Measure the flood, deflected</span></h2>
+
+<p>Same login flood, now with the limiter set to a strict few requests per second per IP:</p>
+
+<div class="tbl-scroll">
+<table class="bench">
+  <tr><th>login flood · 50 workers</th><th>throughput</th><th>p50</th><th>what happens</th></tr>
+  <tr class="base"><td>no rate limit</td><td>14 req/s</td><td>3.4s</td><td>every request runs bcrypt; CPU pinned</td></tr>
+  <tr class="hero"><td>+ per-IP rate limit</td><td class="win">11,554 req/s</td><td>2–3ms</td><td>excess rejected with cheap 429; CPU free</td></tr>
+</table>
+</div>
+
+<p>The abusive IP now gets its handful of real login attempts per second (those still run bcrypt),
+and <em>everything beyond that is bounced in a couple of milliseconds</em> without touching bcrypt at
+all. The CPU stays free, and legitimate users — logging in, reading the feed — sail through.
+<span class="hl g">A 3.4-second denial-of-service became a 3-millisecond shrug.</span></p>
+
+<div class="box gotcha">
+  <span class="box-title">Reading that table honestly</span>
+  <p>The “11,554 req/s” is mostly <code>429</code> rejections — that's the <em>point</em>, not a
+  throughput brag. The number that matters is what it protects: the server no longer melts, so real
+  requests keep their millisecond latencies. When you rate-limit, watch your <em>rejection rate</em>
+  and your <em>real-traffic latency</em>, not the raw request count.</p>
+</div>
+
+<div class="box tip">
+  <span class="box-title">Also cache the token lookup</span>
+  <p>Every authenticated request does a database <code>SELECT</code> to resolve its bearer token.
+  Under heavy load that adds up. A tiny in-memory cache of token-hash → user (like chapter 5's, with
+  a short TTL) skips the query for hot tokens — the same “don't recompute what hasn't changed” move,
+  applied to auth. And behind a real proxy, read the client IP from <code>X-Forwarded-For</code>, not
+  <code>RemoteAddr</code> (which would be the proxy).</p>
+</div>
+
+<div class="recap">
+<h2><span class="swipe">Pin to your brain 📌</span></h2>
+<ul class="checklist">
+  <li>Deliberately-slow endpoints (bcrypt login) are DoS targets: 14 req/s pinned every core.</li>
+  <li>Rate-limit per IP with a token bucket; reject excess with a cheap 429 <em>before</em> the work.</li>
+  <li>Evict idle IPs with a janitor goroutine so the limiter map can't grow unbounded.</li>
+  <li>Judge a rate limiter by protected real-traffic latency, not raw request count. 3.4s → 3ms.</li>
+</ul>
+<p><b>Next up:</b> the read path is handled, writes are protected — but SQLite still allows only one
+writer. When that's genuinely the wall, it's time for Postgres.</p>
+</div>
+
+<nav class="booknav bottom">
+  <a href="ch06.html">← Ch 6 · Contexts</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch08.html">Ch 8 · Graduate to Postgres →</a>
+</nav>
+
+</div>
+</body>
+</html>

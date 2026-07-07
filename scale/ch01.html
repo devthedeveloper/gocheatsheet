@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 1 · The Hug of Death — Go + Scale</title>
+<link rel="stylesheet" href="../ebook/fonts/fonts.css">
+<link rel="stylesheet" href="../ebook/notes.css">
+<link rel="stylesheet" href="scale.css">
+<script src="../ebook/notes.js" defer></script>
+</head>
+<body>
+<div class="sheet">
+
+<nav class="booknav">
+  <a href="index.html">← Cover</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch02.html">Ch 2 · Build a Load Cannon →</a>
+</nav>
+
+<header class="chapter-head">
+  <div class="ch-sticker" style="--sticker:#ffe1c9"><small>chapter</small><span>1</span></div>
+  <div>
+    <h1>The Hug of Death</h1>
+    <svg class="squiggle" viewBox="0 0 420 14" aria-hidden="true"><path d="M4 9 Q 40 2, 80 8 T 160 8 T 240 7 T 320 9 T 416 6" fill="none" stroke="#ff5722" stroke-width="4" stroke-linecap="round"/></svg>
+    <p class="subtitle">from “millions of users” to a number you can actually test</p>
+  </div>
+</header>
+
+<div class="sticky">
+  <h4>In this chapter you'll learn ✍️</h4>
+  <ul>
+    <li>how to turn “millions of users” into requests per second</li>
+    <li>why <b>reads</b> vastly outnumber writes (and why that's good news)</li>
+    <li>throughput vs latency, and why averages lie — meet p50/p95/p99</li>
+    <li>the measurement loop the whole book runs on</li>
+  </ul>
+</div>
+
+<h2><span class="swipe">Your post hits the front page</span></h2>
+
+<p>You built <strong class="pen-o">gopherit</strong> in the <a href="../ebook/index.html">last book</a>.
+It works beautifully for you and a few friends. Then someone posts a link to it, it climbs to #1, and
+a crowd arrives all at once — the <em>hug of death</em>. Does your server hug back, or fall over?</p>
+
+<p>The honest answer, which we'll <em>prove</em> in the next chapter: <span class="hl p">as written,
+gopherit falls over at about 3 requests per second.</span> Not 3 thousand. Three. But by the last
+page it handles tens of thousands — on the same laptop, without a single new machine. The gap between
+those two numbers is this whole book, and it's all measurement.</p>
+
+<h2><span class="swipe teal">Millions of users ≠ millions of requests</span></h2>
+
+<p>“Can it handle a million users?” is the wrong question, because users aren't requests. Let's do the
+napkin math. Say a million <b>daily active users</b>, each making ~50 requests a day (scrolling,
+voting, the odd post):</p>
+
+<div class="box deep">
+  <span class="box-title">The napkin</span>
+  <p style="font-family:var(--mono);font-size:15px;line-height:1.9">
+  1,000,000 users × 50 req/day = 50,000,000 req/day<br>
+  ÷ 86,400 seconds/day ≈ <b>~580 req/s average</b><br>
+  × ~5 (traffic isn't flat — evenings spike) ≈ <b>~3,000 req/s peak</b></p>
+  <p>So a <em>million</em> daily users is a few thousand requests per second at peak. That's a number
+  you can hold in your head — and, spoiler, a number one well-tuned Go box can serve.</p>
+</div>
+
+<p>And here's the kindest fact in all of backend engineering: <span class="hl y">the traffic is
+overwhelmingly reads.</span> On a Reddit-shaped site, well over 90% of requests are “show me the
+feed.” People lurk far more than they post. Every read is cacheable, shardable, and cheap to scale —
+which is why chapters 4 and 5 (the read path) buy us the biggest wins by far.</p>
+
+<div class="flow">
+  <div class="node b">~95% reads<small>feeds, posts, comments</small></div>
+  <div class="arrow">vs</div>
+  <div class="node o">~5% writes<small>posts, votes, logins</small></div>
+</div>
+
+<h2><span class="swipe pink">Averages lie — meet the percentiles</span></h2>
+
+<p>Two numbers describe a system under load. <strong>Throughput</strong> is how many requests per
+second you serve. <strong>Latency</strong> is how long each one takes. And you must never summarise
+latency with an <em>average</em>.</p>
+
+<p>Picture a café. Nine customers are served in 1 minute; one gets stuck behind a broken card reader
+for 10 minutes. The <em>average</em> wait is ~2 minutes — a number literally nobody experienced. The
+truth is “most people wait 1 minute, but 1 in 10 waits 10.” That's what
+<strong>percentiles</strong> tell you:</p>
+
+<div class="tbl-scroll">
+<table class="notes">
+  <tr><th>Percentile</th><th>Reads as</th><th>Why you care</th></tr>
+  <tr><td><b>p50</b> (median)</td><td>half of requests are faster than this</td><td>the typical experience</td></tr>
+  <tr><td><b>p95</b></td><td>95% are faster; 1 in 20 is slower</td><td>your unlucky-but-common users</td></tr>
+  <tr><td><b>p99</b></td><td>99% are faster; 1 in 100 is slower</td><td>the tail that fills your support inbox</td></tr>
+</table>
+</div>
+
+<div class="box warn">
+  <span class="box-title">The tail is the story</span>
+  <p>At scale, the p99 <em>is</em> the experience — with a million users, “1 in 100” is ten thousand
+  angry people. A system with a great average and a terrible p99 is a system that's quietly on fire.
+  Our load tester reports p50/p95/p99, never just an average, and so should you.</p>
+</div>
+
+<h2><span class="swipe green">The loop we'll run eleven times</span></h2>
+
+<p>Every fix in this book follows the same discipline. Never optimise by vibes; optimise by
+evidence:</p>
+
+<div class="loop">
+  <span class="step">load it</span><span class="a">→</span>
+  <span class="step">watch it break</span><span class="a">→</span>
+  <span class="step">profile</span><span class="a">→</span>
+  <span class="step">fix one thing</span><span class="a">→</span>
+  <span class="step">measure again</span><span class="a">↺</span>
+</div>
+
+<p>The “profile” step is the one people skip, and it's the most important. In chapter 4 we'll reach for
+the fix everyone reaches for first — a bigger database connection pool — and watch it take us from a
+miserable 3 req/s to a still-miserable 6. The <em>real</em> culprit was hiding in the query plan,
+somewhere we'd never have guessed. <span class="hl y">Guessing is how you spend a week optimising the
+wrong thing.</span></p>
+
+<div class="recap">
+<h2><span class="swipe">Pin to your brain 📌</span></h2>
+<ul class="checklist">
+  <li>A million daily users ≈ a few thousand req/s at peak — a testable number.</li>
+  <li>~95% of traffic is reads: cacheable, cheap, the biggest wins live here.</li>
+  <li>Summarise latency with p50/p95/p99, never the average. The tail is the experience.</li>
+  <li>Measure → break → profile → fix one thing → measure again. Never guess.</li>
+</ul>
+<p><b>Next up:</b> we can't fix what we can't measure. Let's build a load tester, seed a big database,
+and make gopherit fall over on purpose.</p>
+</div>
+
+<nav class="booknav bottom">
+  <a href="index.html">← Cover</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch02.html">Ch 2 · Build a Load Cannon →</a>
+</nav>
+
+</div>
+</body>
+</html>

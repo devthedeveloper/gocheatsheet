@@ -1,0 +1,41 @@
+/* Scale-book extras layered on top of the ebook's notes.css */
+
+/* benchmark result tables — monospace numbers, aligned */
+table.bench{
+  border-collapse:collapse;width:100%;margin:22px 0;background:#fffdf6;
+  font-family:var(--mono);font-size:14px;
+}
+table.bench th{
+  font-family:var(--hand);font-size:20px;text-align:left;
+  border-bottom:3px solid var(--ink);padding:7px 12px;
+}
+table.bench td{
+  border-bottom:1.5px dashed #cfc8e6;padding:7px 12px;
+  font-variant-numeric:tabular-nums;text-align:right;
+}
+table.bench td:first-child{text-align:left;font-family:var(--body);font-size:15px}
+table.bench tr:last-child td{border-bottom:none}
+table.bench .win{color:#1d7f4c;font-weight:700}
+table.bench .bad{color:#c0392b;font-weight:700}
+table.bench tr.hero td{background:#eafcf1}
+table.bench tr.base td{background:#fdecec}
+
+/* a big before→after stat callout */
+.statline{
+  display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:14px;
+  margin:26px 0;font-family:var(--hand);
+}
+.statline .n{font-size:40px;font-weight:700;line-height:1}
+.statline .n.base{color:#c0392b}
+.statline .n.win{color:#1d7f4c}
+.statline .lab{font-size:16px;color:var(--ink-soft);display:block;text-align:center}
+.statline .arrow{font-size:32px;color:var(--ink-soft)}
+
+/* the measurement-loop badge row */
+.loop{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;margin:24px 0}
+.loop .step{
+  font-family:var(--hand);font-weight:700;font-size:19px;
+  border:2.5px solid var(--violet);color:var(--violet);
+  border-radius:var(--wobble);padding:8px 16px;background:#fffdf6;
+}
+.loop .a{color:var(--ink-soft);font-size:24px}

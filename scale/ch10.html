@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 10 · Watch It Breathe — Go + Scale</title>
+<link rel="stylesheet" href="../ebook/fonts/fonts.css">
+<link rel="stylesheet" href="../ebook/notes.css">
+<link rel="stylesheet" href="scale.css">
+<script src="../ebook/notes.js" defer></script>
+</head>
+<body>
+<div class="sheet">
+
+<nav class="booknav">
+  <a href="ch09.html">← Ch 9 · Clones</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch11.html">Ch 11 · The Rematch →</a>
+</nav>
+
+<header class="chapter-head">
+  <div class="ch-sticker" style="--sticker:#cdeeff"><small>chapter</small><span>10</span></div>
+  <div>
+    <h1>Watch It Breathe</h1>
+    <svg class="squiggle" viewBox="0 0 420 14" aria-hidden="true"><path d="M4 9 Q 40 2, 80 8 T 160 8 T 240 7 T 320 9 T 416 6" fill="none" stroke="#2f80ed" stroke-width="4" stroke-linecap="round"/></svg>
+    <p class="subtitle">you can't fix what you can't see at 3 a.m. — give the system a pulse</p>
+  </div>
+</header>
+
+<div class="sticky">
+  <h4>In this chapter you'll learn ✍️</h4>
+  <ul>
+    <li>a metrics endpoint, dependency-free, in one middleware</li>
+    <li>the four golden signals every service should expose</li>
+    <li>what to actually alert on (hint: not CPU)</li>
+    <li>where Prometheus &amp; Grafana fit</li>
+  </ul>
+</div>
+
+<h2><span class="swipe">The pager goes off at 3 a.m.</span></h2>
+
+<p>The site is slow. Is it the database? A thundering herd? One wedged instance? A login flood? Without
+<strong>observability</strong>, you're debugging blind — restarting things and praying. With it, you
+glance at a dashboard and <em>see</em> which signal spiked. Everything we tuned in this book, we tuned
+by measuring; production is no different, except the measuring has to run <em>all the time</em>,
+automatically.</p>
+
+<h2><span class="swipe teal">Metrics in one middleware</span></h2>
+
+<p>You don't need a big dependency to start. Go's standard library has <code>expvar</code>, and a
+single middleware can count and time every request. Here's gopherit's:</p>
+
+<div class="code-card"><span class="filename new">cmd/api/metrics.go</span>
+<pre><code class="lang-go" data-src="final:cmd/api/metrics.go">package main
+
+import (
+	"expvar"
+	"net/http"
+	"strconv"
+	"time"
+)
+
+// Observability, chapter 10. We keep it dependency-free with the standard
+// library's expvar, which publishes variables as JSON at /debug/vars. In
+// production you'd usually export Prometheus metrics instead (the chapter shows
+// how), but the shape is the same: count requests, time them, expose them.
+var (
+	metricRequests    = expvar.NewInt("requests_total")
+	metricErrors      = expvar.NewInt("responses_5xx_total")
+	metricInFlight    = expvar.NewInt("requests_in_flight")
+	metricTotalMicros = expvar.NewInt("request_duration_micros_total")
+)
+
+// statusRecorder remembers the status code so the metrics layer can see it.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+// metrics records one measurement per request: count, in-flight gauge,
+// duration, and 5xx errors.
+func (app *application) metrics(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		metricRequests.Add(1)
+		metricInFlight.Add(1)
+		defer metricInFlight.Add(-1)
+
+		rec := &amp;statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+
+		metricTotalMicros.Add(time.Since(start).Microseconds())
+		if rec.status &gt;= 500 {
+			metricErrors.Add(1)
+		}
+	})
+}
+
+// metricsHandler serves a compact plaintext summary at /metrics — the golden
+// signals (traffic, errors, latency, saturation) at a glance.
+func (app *application) metricsHandler(w http.ResponseWriter, r *http.Request) {
+	total := metricRequests.Value()
+	avg := int64(0)
+	if total &gt; 0 {
+		avg = metricTotalMicros.Value() / total
+	}
+	w.Header().Set("Content-Type", "text/plain")
+	w.Write([]byte(
+		"requests_total " + strconv.FormatInt(total, 10) + "\n" +
+			"responses_5xx_total " + strconv.FormatInt(metricErrors.Value(), 10) + "\n" +
+			"requests_in_flight " + strconv.FormatInt(metricInFlight.Value(), 10) + "\n" +
+			"request_duration_micros_avg " + strconv.FormatInt(avg, 10) + "\n"))
+}</code></pre>
+</div>
+
+<p>It's one more layer on the middleware onion — the same pattern that's paid off all book. Now every
+request is counted and timed, and a plain-text <code>/metrics</code> endpoint reports the totals:</p>
+
+<div class="term-card"><div class="term-bar"><i></i><i></i><i></i><span>terminal</span></div>
+<pre><code class="lang-bash">$ curl localhost:4000/metrics
+requests_total 20531
+responses_5xx_total 0
+requests_in_flight 3
+request_duration_micros_avg 1683</code></pre>
+</div>
+
+<h2><span class="swipe pink">The four golden signals</span></h2>
+
+<p>Google's SRE book distills what to watch into four signals. Learn these and you can reason about
+almost any service:</p>
+
+<div class="tbl-scroll">
+<table class="notes">
+  <tr><th>Signal</th><th>Question it answers</th><th>gopherit metric</th></tr>
+  <tr><td><b class="pen-b">Traffic</b></td><td>how much demand?</td><td><code>requests_total</code> (rate)</td></tr>
+  <tr><td><b class="pen-p">Errors</b></td><td>how much is failing?</td><td><code>responses_5xx_total</code></td></tr>
+  <tr><td><b class="pen-o">Latency</b></td><td>how slow, at the tail?</td><td>request duration (p50/p95/<b>p99</b>)</td></tr>
+  <tr><td><b class="pen-t">Saturation</b></td><td>how full are the resources?</td><td><code>requests_in_flight</code>, pool usage</td></tr>
+</table>
+</div>
+
+<div class="box warn">
+  <span class="box-title">Alert on symptoms, not causes</span>
+  <p>The rookie mistake is alerting on CPU (“page me at 80%”). But high CPU isn't a problem if latency
+  is fine — and low CPU during an outage tells you nothing. <span class="hl y">Alert on what your
+  users feel: rising p99 latency and rising error rate.</span> Those are symptoms of <em>every</em>
+  problem, whatever the cause. CPU, memory, and pool metrics are for <em>diagnosing</em> once you're
+  already paged — not for waking you up.</p>
+</div>
+
+<h2><span class="swipe green">Where the big tools fit</span></h2>
+
+<p>Our <code>expvar</code> endpoint is real observability, but production usually standardises on
+<strong>Prometheus</strong>: your app exposes <code>/metrics</code> in its text format (the
+<code>prometheus/client_golang</code> library gives you histograms — real p99, not just an average
+like our toy), Prometheus scrapes it every few seconds, and <strong>Grafana</strong> draws the
+dashboards and fires the alerts. Same shape as what we built — count, time, expose — just with proper
+histograms and a scraper doing the remembering.</p>
+
+<div class="box tip">
+  <span class="box-title">Logs, metrics, traces</span>
+  <p>Metrics tell you <em>something</em> is wrong (p99 spiked). <b>Logs</b> — gopherit's structured
+  <code>slog</code> lines from the Reddit book — tell you <em>what</em> (which endpoint, which error).
+  <b>Traces</b> (OpenTelemetry) tell you <em>where</em> in a request's journey the time went. Start
+  with metrics + logs; add tracing when a request crosses enough services that “where” stops being
+  obvious.</p>
+</div>
+
+<div class="recap">
+<h2><span class="swipe">Pin to your brain 📌</span></h2>
+<ul class="checklist">
+  <li>Observability = measuring in production, always-on. A middleware + <code>/metrics</code> is enough to start.</li>
+  <li>Watch the four golden signals: traffic, errors, latency (p99!), saturation.</li>
+  <li>Alert on symptoms users feel (latency, errors), diagnose with resource metrics.</li>
+  <li>Graduate to Prometheus + Grafana for real histograms and dashboards; same shape as your toy.</li>
+</ul>
+<p><b>Next up:</b> the finale. We re-run chapter 2's benchmark against the finished system — and draw
+the honest map of everything we <em>didn't</em> need.</p>
+</div>
+
+<nav class="booknav bottom">
+  <a href="ch09.html">← Ch 9 · Clones</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch11.html">Ch 11 · The Rematch →</a>
+</nav>
+
+</div>
+</body>
+</html>

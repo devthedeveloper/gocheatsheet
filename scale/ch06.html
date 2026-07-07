@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 6 · Contexts &amp; Timeouts — Go + Scale</title>
+<link rel="stylesheet" href="../ebook/fonts/fonts.css">
+<link rel="stylesheet" href="../ebook/notes.css">
+<link rel="stylesheet" href="scale.css">
+<script src="../ebook/notes.js" defer></script>
+</head>
+<body>
+<div class="sheet">
+
+<nav class="booknav">
+  <a href="ch05.html">← Ch 5 · Cache</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch07.html">Ch 7 · The Login Problem →</a>
+</nav>
+
+<header class="chapter-head">
+  <div class="ch-sticker" style="--sticker:#cdeeff"><small>chapter</small><span>6</span></div>
+  <div>
+    <h1>Contexts &amp; Timeouts</h1>
+    <svg class="squiggle" viewBox="0 0 420 14" aria-hidden="true"><path d="M4 9 Q 40 2, 80 8 T 160 8 T 240 7 T 320 9 T 416 6" fill="none" stroke="#2f80ed" stroke-width="4" stroke-linecap="round"/></svg>
+    <p class="subtitle">a request that can't be cancelled is a leak — and under load, leaks are outages</p>
+  </div>
+</header>
+
+<div class="sticky">
+  <h4>In this chapter you'll learn ✍️</h4>
+  <ul>
+    <li>why every slow request is a resource held hostage</li>
+    <li>server-level timeouts (gopherit already has them — here's why)</li>
+    <li><code>context</code> for deadlines and cancellation, end to end</li>
+    <li>the IOU from the Reddit book, finally paid</li>
+  </ul>
+</div>
+
+<h2><span class="swipe">The slow-motion outage</span></h2>
+
+<p>Every in-flight request holds things: a goroutine, a connection, maybe a database handle. When
+requests finish in milliseconds, that's fine. But let one class of request hang for 30 seconds — a
+slow query, a wedged upstream, a client that vanished mid-download — and under load those held
+resources pile up faster than they're released. Connections exhaust, goroutines balloon, and the
+whole server tips over. <span class="hl p">A request with no deadline is a request that can take down
+your server.</span></p>
+
+<h2><span class="swipe teal">Server timeouts: the outer wall</span></h2>
+
+<p>gopherit already carries the first line of defense, set back in the Reddit book — timeouts on the
+HTTP server itself:</p>
+
+<div class="code-card"><span class="filename">cmd/api/main.go — the server's own timeouts</span>
+<pre><code class="lang-go" data-src="final:cmd/api/main.go#L101-L107">	srv := &amp;http.Server{
+		Addr:         fmt.Sprintf(":%d", cfg.port),
+		Handler:      app.routes(),
+		IdleTimeout:  time.Minute,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}</code></pre>
+</div>
+
+<ul>
+  <li><strong>ReadTimeout</strong> — a client dribbling its request one byte at a time can't hold a
+      connection forever (the classic “slowloris” attack).</li>
+  <li><strong>WriteTimeout</strong> — a response that takes too long to send is cut off.</li>
+  <li><strong>IdleTimeout</strong> — kept-alive connections that go quiet are reclaimed.</li>
+</ul>
+
+<p>These bound the <em>connection</em>. But they don't stop the <em>work</em>: if a handler kicks off a
+30-second database query, WriteTimeout closes the socket, yet the query keeps running, still holding
+its connection. To cancel the work itself, we need <code>context</code>.</p>
+
+<h2><span class="swipe pink">context: cancellation that flows downstream</span></h2>
+
+<p>Every <code>*http.Request</code> carries a <code>context.Context</code> — <code>r.Context()</code> —
+that Go <strong>cancels automatically when the client disconnects</strong>. If you pass that context
+all the way down into your database calls, a query whose caller has already hung up gets cancelled
+instead of grinding on for nothing. You can also add a hard deadline:</p>
+
+<div class="code-card"><span class="filename">the pattern: a per-request deadline</span>
+<pre><code class="lang-go">func (app *application) listPostsHandler(w http.ResponseWriter, r *http.Request) {
+	// Give this request at most 3 seconds of database time, and cancel the
+	// query automatically if the client disconnects first.
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+
+	posts, meta, err := app.store.ListPosts(ctx, filters) // ctx flows in
+	// ...
+}</code></pre>
+</div>
+
+<p>For that to work, the store's methods must <em>accept</em> a context and hand it to the driver —
+<code>QueryContext</code> / <code>ExecContext</code> instead of <code>Query</code> / <code>Exec</code>:</p>
+
+<div class="code-card"><span class="filename">internal/store/posts.go — context-aware queries</span>
+<pre><code class="lang-go">// Before: func (s *Store) ListPosts(f PostFilters) (...)
+// After:  the context threads from the request down to the driver.
+func (s *Store) ListPosts(ctx context.Context, f PostFilters) ([]Post, Meta, error) {
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	// ...when ctx is cancelled, the driver abandons the query and returns.
+}</code></pre>
+</div>
+
+<div class="box tip">
+  <span class="box-title">The Reddit book's IOU</span>
+  <p>Back in the Reddit book, the store methods deliberately skipped <code>context.Context</code> to
+  stay readable — with a promise to add it “when scale demands.” This is that moment. It's a
+  mechanical refactor: thread <code>ctx</code> from each handler through each store method into each
+  <code>QueryContext</code>/<code>ExecContext</code>. Tedious, but every method ends up cancellable —
+  and under load, cancellable is the difference between shedding a slow request and drowning in it.</p>
+</div>
+
+<div class="box deep">
+  <span class="box-title">Context carries more than deadlines</span>
+  <p>The same <code>context.Context</code> is also how request-scoped values ride along — remember
+  gopherit's auth middleware stashing the current user in <code>r.Context()</code>? Deadlines,
+  cancellation, and request values all travel the same pipe, from the edge of your server to the
+  deepest query. Learn it once; it's everywhere in Go.</p>
+</div>
+
+<div class="recap">
+<h2><span class="swipe">Pin to your brain 📌</span></h2>
+<ul class="checklist">
+  <li>Unbounded requests pile up under load until resources run out. Bound everything.</li>
+  <li>Set <code>ReadTimeout</code>/<code>WriteTimeout</code>/<code>IdleTimeout</code> on the HTTP server.</li>
+  <li><code>r.Context()</code> cancels when the client disconnects; <code>WithTimeout</code> adds a deadline.</li>
+  <li>Thread <code>ctx</code> into <code>QueryContext</code>/<code>ExecContext</code> so the work itself can be cancelled.</li>
+</ul>
+<p><b>Next up:</b> one endpoint is slow <em>on purpose</em> — login. That makes it a weapon. Let's
+defend it.</p>
+</div>
+
+<nav class="booknav bottom">
+  <a href="ch05.html">← Ch 5 · Cache</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch07.html">Ch 7 · The Login Problem →</a>
+</nav>
+
+</div>
+</body>
+</html>

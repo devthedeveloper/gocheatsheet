@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 3 · Find the Bottleneck — Go + Scale</title>
+<link rel="stylesheet" href="../ebook/fonts/fonts.css">
+<link rel="stylesheet" href="../ebook/notes.css">
+<link rel="stylesheet" href="scale.css">
+<script src="../ebook/notes.js" defer></script>
+</head>
+<body>
+<div class="sheet">
+
+<nav class="booknav">
+  <a href="ch02.html">← Ch 2 · Load Cannon</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch04.html">Ch 4 · Database Surgery →</a>
+</nav>
+
+<header class="chapter-head">
+  <div class="ch-sticker" style="--sticker:#e6dbff"><small>chapter</small><span>3</span></div>
+  <div>
+    <h1>Find the Bottleneck</h1>
+    <svg class="squiggle" viewBox="0 0 420 14" aria-hidden="true"><path d="M4 9 Q 40 2, 80 8 T 160 8 T 240 7 T 320 9 T 416 6" fill="none" stroke="#7c5cff" stroke-width="4" stroke-linecap="round"/></svg>
+    <p class="subtitle">profile before you fix — the answer is almost never where you'd guess</p>
+  </div>
+</header>
+
+<div class="sticky">
+  <h4>In this chapter you'll learn ✍️</h4>
+  <ul>
+    <li>wiring up <code>pprof</code> safely (and why “safely” matters)</li>
+    <li>reading <code>EXPLAIN QUERY PLAN</code> — the database showing its work</li>
+    <li>spotting the two words that mean “this query doesn't scale”</li>
+    <li>the actual culprit behind our 3 req/s (it's one line of SQL)</li>
+  </ul>
+</div>
+
+<h2><span class="swipe">Resist the urge to guess</span></h2>
+
+<p>3 req/s. Every instinct screams a fix: “it's the database connection pool!”, “add caching!”, “more
+CPU!”. <span class="hl p">Every one of those instincts might be wrong</span>, and acting on a wrong
+guess costs days. The rule: <em>profile first</em>. Let the machine tell you where the time actually
+goes.</p>
+
+<h2><span class="swipe teal">pprof: Go's built-in profiler</span></h2>
+
+<p>Go ships a world-class profiler in the standard library. You expose it on a
+<strong>separate, localhost-only port</strong> — never the public one, because those endpoints leak
+internals and can be abused:</p>
+
+<div class="code-card"><span class="filename">cmd/api/main.go — pprof on a private port</span>
+<pre><code class="lang-go" data-src="final:cmd/api/main.go#L87-L99">	// Profiling endpoints (chapter 3), on a SEPARATE localhost-only port so
+	// they're never exposed to the public internet. Visit
+	// http://localhost:6060/debug/pprof/ while the server is under load.
+	if cfg.env != "production" {
+		go func() {
+			mux := http.NewServeMux()
+			mux.HandleFunc("/debug/pprof/", pprof.Index)
+			mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+			mux.HandleFunc("/debug/pprof/heap", pprof.Handler("heap").ServeHTTP)
+			logger.Info("pprof on http://localhost:6060/debug/pprof/")
+			http.ListenAndServe("localhost:6060", mux)
+		}()
+	}</code></pre>
+</div>
+
+<p>Now, with <code>hammer</code> pounding the server, grab a 15-second CPU profile and open it:</p>
+
+<div class="term-card"><div class="term-bar"><i></i><i></i><i></i><span>terminal</span></div>
+<pre><code class="lang-bash"># while the load test runs:
+$ go tool pprof http://localhost:6060/debug/pprof/profile?seconds=15
+(pprof) top
+# ...time dominated by SQLite query execution — the feed query —
+# not JSON encoding, not the HTTP layer, not GC.
+(pprof) web   # opens a flame graph in your browser</code></pre>
+</div>
+
+<p>The profile points squarely at the database: nearly all the time is spent <em>inside one query</em>,
+the feed. The HTTP layer, JSON encoding, the Go runtime — all noise. So we stop looking at Go and ask
+the database to explain itself.</p>
+
+<div class="box tip">
+  <span class="box-title">Also run it under -race</span>
+  <p>Before you optimise anything concurrent, run your load test against a
+  <code>go build -race</code> binary once. A data race that's invisible at low traffic will corrupt
+  data under load. Correctness first, then speed — a fast wrong answer is still wrong.</p>
+</div>
+
+<h2><span class="swipe pink">EXPLAIN QUERY PLAN — the database shows its work</span></h2>
+
+<p>Every SQL database can tell you <em>how</em> it plans to run a query. In SQLite you prefix it with
+<code>EXPLAIN QUERY PLAN</code>. Here's the feed query as gopherit shipped it — the “hot” sort with
+its <code>COUNT(*) OVER()</code> window function for pagination totals:</p>
+
+<div class="term-card"><div class="term-bar"><i></i><i></i><i></i><span>sqlite — the feed query as shipped</span></div>
+<pre><code class="lang-bash">EXPLAIN QUERY PLAN
+  SELECT ..., COUNT(*) OVER() AS total
+  FROM posts p JOIN users u ... JOIN subreddits sr ...
+  ORDER BY p.hotness DESC LIMIT 20 OFFSET 0;
+
+CO-ROUTINE (subquery-2)
+SCAN p                          <-- reads ALL 50,000 posts
+SEARCH u USING INTEGER PRIMARY KEY (rowid=?)
+SEARCH sr USING INTEGER PRIMARY KEY (rowid=?)
+SCAN (subquery-2)
+USE TEMP B-TREE FOR ORDER BY    <-- sorts ALL 50,000 in a scratch tree</code></pre>
+</div>
+
+<p>There they are — the <span class="hl p">two phrases that mean “this does not scale”</span>:</p>
+<ul>
+  <li><strong><code>SCAN p</code></strong> — a full table scan. Every request reads all 50,000 posts,
+      even though we only return 20.</li>
+  <li><strong><code>USE TEMP B-TREE FOR ORDER BY</code></strong> — the database builds a throwaway
+      sorted tree of all 50,000 rows, every single request.</li>
+</ul>
+
+<p>Why? The innocent-looking <code>COUNT(*) OVER()</code> — a window function we used to get the total
+row count for pagination in the same query. To count <em>all</em> matching rows, SQLite has to
+<em>visit</em> all of them. That one convenience defeats the <code>LIMIT</code> entirely: there's no
+point stopping at 20 rows if you must scan 50,000 to get the total.</p>
+
+<p>Now watch what the same query looks like <strong>without</strong> the window function:</p>
+
+<div class="term-card"><div class="term-bar"><i></i><i></i><i></i><span>sqlite — page query, no window function</span></div>
+<pre><code class="lang-bash">EXPLAIN QUERY PLAN
+  SELECT ... FROM posts p JOIN users u ... JOIN subreddits sr ...
+  ORDER BY p.hotness DESC LIMIT 20 OFFSET 0;
+
+SCAN p USING INDEX idx_posts_hotness   <-- walks the index, stops at 20
+SEARCH u USING INTEGER PRIMARY KEY (rowid=?)
+SEARCH sr USING INTEGER PRIMARY KEY (rowid=?)</code></pre>
+</div>
+
+<p>No full scan. No temp b-tree. With an index on the sort column, SQLite walks it in order and stops
+after 20 rows — touching 20 posts instead of 50,000. <span class="hl y">Same data, same result, a
+different plan — and that difference is the whole ballgame.</span></p>
+
+<div class="box deep">
+  <span class="box-title">Why the profiler and EXPLAIN, together</span>
+  <p>pprof told us <em>which</em> code was slow (the feed query). EXPLAIN told us <em>why</em> (full
+  scan + temp sort). You need both: the profiler narrows a whole program to one hot spot; EXPLAIN
+  narrows one query to one bad line. Neither alone would have pointed at a window function — which is
+  exactly why we didn't just start adding connection-pool size and hoping.</p>
+</div>
+
+<div class="recap">
+<h2><span class="swipe">Pin to your brain 📌</span></h2>
+<ul class="checklist">
+  <li>Expose <code>pprof</code> on a private port; grab a CPU profile <em>under load</em>.</li>
+  <li><code>EXPLAIN QUERY PLAN</code> shows how the DB runs a query — read it before optimising it.</li>
+  <li><code>SCAN</code> (full table read) and <code>USE TEMP B-TREE</code> (throwaway sort) = doesn't scale.</li>
+  <li>Our villain: <code>COUNT(*) OVER()</code> forced a scan+sort of all 50k rows every request.</li>
+</ul>
+<p><b>Next up:</b> now we know exactly what to fix. Time for surgery — and to watch the “obvious” fix
+disappoint before the real one lands.</p>
+</div>
+
+<nav class="booknav bottom">
+  <a href="ch02.html">← Ch 2 · Load Cannon</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch04.html">Ch 4 · Database Surgery →</a>
+</nav>
+
+</div>
+</body>
+</html>

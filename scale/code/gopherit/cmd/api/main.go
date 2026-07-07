@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -81,6 +82,20 @@ func main() {
 	}
 	if rlRPS > 0 {
 		app.limiter = newIPLimiter(rlRPS, rlBurst)
+	}
+
+	// Profiling endpoints (chapter 3), on a SEPARATE localhost-only port so
+	// they're never exposed to the public internet. Visit
+	// http://localhost:6060/debug/pprof/ while the server is under load.
+	if cfg.env != "production" {
+		go func() {
+			mux := http.NewServeMux()
+			mux.HandleFunc("/debug/pprof/", pprof.Index)
+			mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+			mux.HandleFunc("/debug/pprof/heap", pprof.Handler("heap").ServeHTTP)
+			logger.Info("pprof on http://localhost:6060/debug/pprof/")
+			http.ListenAndServe("localhost:6060", mux)
+		}()
 	}
 
 	srv := &http.Server{

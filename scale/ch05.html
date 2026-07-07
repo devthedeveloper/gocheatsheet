@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 5 · Cache Rules Everything — Go + Scale</title>
+<link rel="stylesheet" href="../ebook/fonts/fonts.css">
+<link rel="stylesheet" href="../ebook/notes.css">
+<link rel="stylesheet" href="scale.css">
+<script src="../ebook/notes.js" defer></script>
+</head>
+<body>
+<div class="sheet">
+
+<nav class="booknav">
+  <a href="ch04.html">← Ch 4 · Database Surgery</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch06.html">Ch 6 · Contexts &amp; Timeouts →</a>
+</nav>
+
+<header class="chapter-head">
+  <div class="ch-sticker" style="--sticker:#fff8b8"><small>chapter</small><span>5</span></div>
+  <div>
+    <h1>Cache Rules Everything</h1>
+    <svg class="squiggle" viewBox="0 0 420 14" aria-hidden="true"><path d="M4 9 Q 40 2, 80 8 T 160 8 T 240 7 T 320 9 T 416 6" fill="none" stroke="#f5b301" stroke-width="4" stroke-linecap="round"/></svg>
+    <p class="subtitle">the front page is the same for everyone — so build it once</p>
+  </div>
+</header>
+
+<div class="sticky">
+  <h4>In this chapter you'll learn ✍️</h4>
+  <ul>
+    <li>why the cheapest query is the one you never run</li>
+    <li>a ~60-line in-process TTL cache (map + RWMutex)</li>
+    <li>the thundering-herd problem, and <code>singleflight</code></li>
+    <li>the biggest jump in the book: <b>614 → 21,506 req/s</b></li>
+  </ul>
+</div>
+
+<h2><span class="swipe">The same bytes, over and over</span></h2>
+
+<p>614 req/s means we're running the feed query 614 times a second. But think about what it returns:
+<span class="hl y">the exact same front page for every visitor.</span> Ada, Linus, and ten thousand
+strangers all get identical bytes. Rebuilding that from the database each time is pure waste. The
+fastest query is the one you never send — <strong class="pen-o">cache the answer.</strong></p>
+
+<h2><span class="swipe teal">A tiny in-process cache</span></h2>
+
+<p>No Redis yet — we don't need it. A map guarded by a read-write mutex, with a time-to-live on each
+entry, lives right inside the server process. First request builds and stores the page; everyone else
+within the TTL gets the stored copy in microseconds:</p>
+
+<div class="code-card"><span class="filename new">cmd/api/cache.go</span>
+<pre><code class="lang-go" data-src="final:cmd/api/cache.go">package main
+
+import (
+	"sync"
+	"time"
+
+	"golang.org/x/sync/singleflight"
+)
+
+// feedCache is a tiny in-process cache for the front page. The feed is the
+// same bytes for everyone, so there is no reason to rebuild it from the
+// database on every request — we build it once and hand the same bytes to
+// everyone who asks within the TTL.
+//
+// singleflight solves the "thundering herd": when a cached entry expires under
+// heavy traffic, only ONE goroutine rebuilds it; the rest wait for that single
+// result instead of all hammering the database at once.
+type feedCache struct {
+	ttl   time.Duration
+	group singleflight.Group
+
+	mu      sync.RWMutex
+	entries map[string]cacheEntry
+}
+
+type cacheEntry struct {
+	data    []byte
+	expires time.Time
+}
+
+func newFeedCache(ttl time.Duration) *feedCache {
+	return &amp;feedCache{ttl: ttl, entries: make(map[string]cacheEntry)}
+}
+
+// get returns cached bytes for key if they are still fresh.
+func (c *feedCache) get(key string) ([]byte, bool) {
+	c.mu.RLock()
+	e, ok := c.entries[key]
+	c.mu.RUnlock()
+	if !ok || time.Now().After(e.expires) {
+		return nil, false
+	}
+	return e.data, true
+}
+
+// fetch returns cached bytes, or builds them via build() if missing/stale.
+// Concurrent callers for the same key share a single build.
+func (c *feedCache) fetch(key string, build func() ([]byte, error)) ([]byte, error) {
+	if data, ok := c.get(key); ok {
+		return data, nil
+	}
+	data, err, _ := c.group.Do(key, func() (any, error) {
+		// Re-check: another goroutine may have filled it while we queued.
+		if data, ok := c.get(key); ok {
+			return data, nil
+		}
+		fresh, err := build()
+		if err != nil {
+			return nil, err
+		}
+		c.mu.Lock()
+		c.entries[key] = cacheEntry{data: fresh, expires: time.Now().Add(c.ttl)}
+		c.mu.Unlock()
+		return fresh, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return data.([]byte), nil
+}</code></pre>
+</div>
+
+<p>Two things make this more than a naive map:</p>
+<ul>
+  <li><strong>An <code>RWMutex</code></strong> — many readers can check the cache at once; only a
+      writer refreshing an entry needs exclusive access. Reads are the common case, so this matters.</li>
+  <li><strong><code>singleflight</code></strong> — the star of the show, explained next.</li>
+</ul>
+
+<h2><span class="swipe pink">The thundering herd</span></h2>
+
+<p>Here's the trap a naive cache falls into. An entry expires. At that instant, 500 requests arrive,
+all see an empty cache, and all 500 stampede the database to rebuild the <em>same</em> page at once — a
+<strong>thundering herd</strong>. The cache made things <em>worse</em>: you get periodic 500-query
+spikes that can knock the database over.</p>
+
+<div class="flow">
+  <div class="node b">entry expires</div>
+  <div class="arrow">⟶</div>
+  <div class="node o">500 requests miss<small>at the same instant</small></div>
+  <div class="arrow">⟶</div>
+  <div class="node v">500 identical<br>DB rebuilds 💥</div>
+</div>
+
+<p><code>golang.org/x/sync/singleflight</code> fixes it in one call: when many goroutines ask for the
+same key at once, <span class="hl g">exactly one does the work</span> and the rest wait for and share
+its result. 500 misses become 1 rebuild + 499 free-riders. Look back at <code>fetch()</code> in
+<code>cache.go</code> — that's the whole mechanism: <code>c.group.Do(key, ...)</code>.</p>
+
+<p>Wiring it into the feed handler: cache the response bytes, keyed by the query string.</p>
+
+<div class="code-card"><span class="filename">cmd/api/posts.go — the handler, now cached</span>
+<pre><code class="lang-go" data-src="final:cmd/api/posts.go#func listPostsHandler">// listPostsHandler — GET /api/v1/posts?sort=hot&amp;page=1&amp;page_size=20
+// The site-wide front page.
+func (app *application) listPostsHandler(w http.ResponseWriter, r *http.Request) {
+	filters, err := app.readPostFilters(r)
+	if err != nil {
+		app.badRequest(w, err)
+		return
+	}
+
+	// Serve the front page from the cache: everyone asking for the same
+	// sort/page gets the same bytes for up to the TTL, and only one goroutine
+	// ever rebuilds a given page (singleflight guards the thundering herd).
+	body, err := app.feed.fetch(r.URL.RawQuery, func() ([]byte, error) {
+		posts, meta, err := app.store.ListPosts(filters)
+		if err != nil {
+			return nil, err
+		}
+		return json.MarshalIndent(envelope{"posts": posts, "meta": meta}, "", "\t")
+	})
+	if err != nil {
+		app.serverError(w, r, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(body)
+}</code></pre>
+</div>
+
+<h2><span class="swipe green">Measure the herd tamed</span></h2>
+
+<div class="tbl-scroll">
+<table class="bench">
+  <tr><th>feed · 50 workers</th><th>req/s</th><th>p50</th><th>p99</th><th>errors</th></tr>
+  <tr class="base"><td>baseline</td><td>3</td><td>8.3s</td><td>29.2s</td><td>23%</td></tr>
+  <tr><td>after database surgery (ch 4)</td><td>614</td><td>69ms</td><td>256ms</td><td>0%</td></tr>
+  <tr class="hero"><td>+ cache + singleflight</td><td class="win">21,506</td><td>2ms</td><td>9ms</td><td>0%</td></tr>
+</table>
+</div>
+
+<div class="statline">
+  <span><span class="n win">21,506</span><span class="lab">req/s</span></span>
+  <span><span class="n win">2ms</span><span class="lab">p50 latency</span></span>
+  <span><span class="n win">7,000×</span><span class="lab">vs the 3 req/s<br>we started at</span></span>
+</div>
+
+<p>Twenty-one thousand requests a second, p50 of <strong class="pen-t">two milliseconds</strong>, on the
+same four-core laptop that could manage three. Remember the napkin math from chapter 1 — a million
+daily users was ~3,000 req/s at peak. <span class="hl y">We're now comfortably past that, on one
+machine, serving the front page essentially for free.</span></p>
+
+<div class="box warn">
+  <span class="box-title">The two hard things about caching</span>
+  <p>“There are only two hard problems in computer science: cache invalidation and naming things.” Our
+  invalidation is the simplest that works: a 1-second TTL. Good enough — a post is at most 1s late to
+  the feed. The alternative, explicitly clearing the cache on every new post/vote, is more code and
+  more bugs. <span class="hl g">Start with a short TTL; reach for explicit invalidation only when a
+  second of staleness genuinely matters.</span></p>
+</div>
+
+<div class="box deep">
+  <span class="box-title">Caches all the way out</span>
+  <p>We cached inside the process. The same idea repeats at every layer: HTTP <code>Cache-Control</code>
+  and <code>ETag</code> headers let browsers and CDNs cache the response so it never even reaches your
+  server; a shared cache (Redis) lets many server instances share one cache (chapter 9). Same principle
+  every time: don't recompute what hasn't changed.</p>
+</div>
+
+<div class="recap">
+<h2><span class="swipe">Pin to your brain 📌</span></h2>
+<ul class="checklist">
+  <li>The cheapest query is the one you never run. Cache responses that are the same for everyone.</li>
+  <li>An in-process cache is a map + <code>RWMutex</code> + a TTL. No infrastructure required.</li>
+  <li><code>singleflight</code> collapses a thundering herd of misses into a single rebuild.</li>
+  <li>Start with a short TTL; it's the simplest invalidation that works. 614 → 21,506 req/s.</li>
+</ul>
+<p><b>Next up:</b> the read path flies. But a request that hangs forever still ties up resources — and
+under load, that's a slow-motion outage. Let's talk timeouts.</p>
+</div>
+
+<nav class="booknav bottom">
+  <a href="ch04.html">← Ch 4 · Database Surgery</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch06.html">Ch 6 · Contexts &amp; Timeouts →</a>
+</nav>
+
+</div>
+</body>
+</html>
