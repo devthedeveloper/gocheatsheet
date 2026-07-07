@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Warm-up · Build Your First Go API — linkboard</title>
+<link rel="stylesheet" href="../ebook/fonts/fonts.css">
+<link rel="stylesheet" href="../ebook/notes.css">
+<script src="../ebook/notes.js" defer></script>
+</head>
+<body>
+<div class="sheet">
+
+  <!-- ============ COVER ============ -->
+  <div style="text-align:center;padding:24px 0 8px">
+    <svg width="132" height="132" viewBox="0 0 120 120" aria-label="a hand-drawn chick" style="transform:rotate(-4deg)">
+      <ellipse cx="60" cy="72" rx="40" ry="38" fill="#ffd23f" stroke="#333047" stroke-width="3"/>
+      <circle cx="60" cy="40" r="30" fill="#ffdf6b" stroke="#333047" stroke-width="3"/>
+      <circle cx="50" cy="37" r="5.5" fill="#333047"/>
+      <circle cx="72" cy="37" r="5.5" fill="#333047"/>
+      <path d="M58 47 L70 52 L58 56 Z" fill="#ff8c1a" stroke="#333047" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M30 70 q-14 4 -18 -4" fill="none" stroke="#333047" stroke-width="3" stroke-linecap="round"/>
+      <path d="M90 70 q14 4 18 -4" fill="none" stroke="#333047" stroke-width="3" stroke-linecap="round"/>
+      <path d="M46 12 l6 12 M60 8 l0 14 M74 12 l-6 12" fill="none" stroke="#333047" stroke-width="2.5" stroke-linecap="round"/>
+    </svg>
+
+    <h1 class="cover-title" style="font-size:clamp(40px,7vw,72px)">Build Your <span class="go">First</span> Go API</h1>
+    <svg class="squiggle" viewBox="0 0 420 14" style="margin:0 auto" aria-hidden="true">
+      <path d="M4 9 Q 40 2, 80 8 T 160 8 T 240 7 T 320 9 T 416 6" fill="none" stroke="#f5b301" stroke-width="4" stroke-linecap="round"/>
+    </svg>
+    <p class="cover-sub">a gentle, 5-chapter warm-up — you'll build <b>linkboard</b>, a tiny link-sharing
+    board, in an evening. Then the <a href="../ebook/index.html">Reddit book</a> will feel easy.</p>
+
+    <p style="margin-top:16px">
+      <span class="hl y">~180 lines of Go</span> &nbsp;·&nbsp;
+      <span class="hl g">one file grows into four</span> &nbsp;·&nbsp;
+      <span class="hl b">every chapter runs</span> &nbsp;·&nbsp;
+      <span class="hl p">no experience needed</span>
+    </p>
+  </div>
+
+  <!-- ============ WHO ============ -->
+  <div class="sticky blue">
+    <h4>Who this is for 🐣</h4>
+    <ul>
+      <li>you know a <em>little</em> Go (variables, structs, functions, <code>if err != nil</code>)</li>
+      <li>you've never built a web API — or you tried the <a href="../ebook/index.html">Reddit book</a> and it felt like a lot</li>
+      <li>you want a win <em>today</em>: a real running server you understand top to bottom</li>
+    </ul>
+    <p style="font-size:19px;margin-top:8px">Rusty on the Go itself? Keep the
+    <a href="../index.html">cheatsheet</a> open in the next tab.</p>
+  </div>
+
+  <h2><span class="swipe">What you'll build</span></h2>
+  <p><strong class="pen-o">linkboard</strong> is the simplest social site that still feels real: a
+  single page where anyone can <span class="hl y">post a link and upvote</span>, with the top links
+  floating up — think a one-room Hacker News. No logins, no comments, no fuss. By the last page it's
+  a real JSON API <em>and</em> a little web page, all served by one Go program you wrote yourself.</p>
+
+  <div class="flow" aria-label="what linkboard does">
+    <div class="node b">you POST a link<small>title + url</small></div>
+    <div class="arrow">⟶</div>
+    <div class="node o">Go server<small>your code</small></div>
+    <div class="arrow">⟶</div>
+    <div class="node g">SQLite file<small>remembers it</small></div>
+    <div class="arrow">⟶</div>
+    <div class="node v">everyone upvotes<small>top floats up</small></div>
+  </div>
+
+  <!-- ============ TOC ============ -->
+  <h2><span class="swipe teal">The five chapters</span></h2>
+  <div class="toc-grid">
+    <a class="toc-card" href="ch01.html">
+      <span class="num">chapter 01</span>
+      <span class="name">One File, Whole API</span>
+      <span class="blurb">~60 lines, links kept in memory. You'll have a working <code>POST</code>/<code>GET</code> API before your coffee cools.</span>
+    </a>
+    <a class="toc-card" href="ch02.html">
+      <span class="num">chapter 02</span>
+      <span class="name">Survive a Restart</span>
+      <span class="blurb">Your links vanish when the server stops. Give them a real home: one SQLite file, ~40 changed lines.</span>
+    </a>
+    <a class="toc-card" href="ch03.html">
+      <span class="num">chapter 03</span>
+      <span class="name">Votes &amp; Sorting</span>
+      <span class="blurb">Upvotes with one <code>UPDATE</code>, and <code>?sort=top</code> vs <code>new</code> — the heart of every link aggregator.</span>
+    </a>
+    <a class="toc-card" href="ch04.html">
+      <span class="num">chapter 04</span>
+      <span class="name">Be a Good API + a Web Page</span>
+      <span class="blurb">Tidy JSON errors, a little validation, and a 30-line frontend served right from Go. The “I built a website” moment.</span>
+    </a>
+    <a class="toc-card" href="ch05.html">
+      <span class="num">chapter 05</span>
+      <span class="name">Ship It + the Bridge</span>
+      <span class="blurb">Build one binary, then a map from every linkboard idea to its grown-up form in the Reddit book. Your on-ramp.</span>
+    </a>
+  </div>
+
+  <div class="box tip">
+    <span class="box-title">How to read this</span>
+    <p><b>Type the code, run every chapter.</b> Each chapter ends with real <code>curl</code> commands
+    and the exact output to expect. Stuck? Every chapter has a complete, compiling copy of the project
+    at that point in
+    <a href="https://github.com/devthedeveloper/gocheatsheet/tree/main/warmup/code/checkpoints">code/checkpoints/</a>
+    — copy the folder and keep going.</p>
+  </div>
+
+  <span class="scribble o">no frameworks, no ORM, no magic — just Go's standard library and one tiny SQLite driver ✍️</span>
+
+  <nav class="booknav bottom">
+    <a href="../index.html">← Cheatsheet</a>
+    <span class="spacer"></span>
+    <a href="ch01.html">Start → Ch 1 · One File, Whole API</a>
+  </nav>
+</div>
+</body>
+</html>

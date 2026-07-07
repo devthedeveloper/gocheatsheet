@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 1 · One File, Whole API — linkboard</title>
+<link rel="stylesheet" href="../ebook/fonts/fonts.css">
+<link rel="stylesheet" href="../ebook/notes.css">
+<script src="../ebook/notes.js" defer></script>
+</head>
+<body>
+<div class="sheet">
+
+<nav class="booknav">
+  <a href="index.html">← Cover</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch02.html">Ch 2 · Survive a Restart →</a>
+</nav>
+
+<header class="chapter-head">
+  <div class="ch-sticker" style="--sticker:#fff8b8"><small>chapter</small><span>1</span></div>
+  <div>
+    <h1>One File, Whole API</h1>
+    <svg class="squiggle" viewBox="0 0 420 14" aria-hidden="true"><path d="M4 9 Q 40 2, 80 8 T 160 8 T 240 7 T 320 9 T 416 6" fill="none" stroke="#f5b301" stroke-width="4" stroke-linecap="round"/></svg>
+    <p class="subtitle">a working link-sharing API in ~60 lines — before your coffee cools</p>
+  </div>
+</header>
+
+<div class="sticky">
+  <h4>In this chapter you'll learn ✍️</h4>
+  <ul>
+    <li>the handler shape every Go web program is built from</li>
+    <li>routing with Go's built-in <code>ServeMux</code> — no framework</li>
+    <li>reading JSON in and writing JSON out</li>
+    <li>enough to have a real API you can <code>curl</code></li>
+  </ul>
+</div>
+
+<h2><span class="swipe">The plan for linkboard</span></h2>
+
+<p>We're building <strong class="pen-o">linkboard</strong>: post a link, list the links. That's the
+whole app today. No database yet — we'll keep the links in a plain Go slice in memory. It's the
+fastest possible path to <span class="hl y">a running API you fully understand</span>, and every
+later chapter grows this exact file.</p>
+
+<p>Two endpoints to start:</p>
+<p>
+  <span class="ep get">GET /links</span> &nbsp;— list every link &nbsp;·&nbsp;
+  <span class="ep post">POST /links</span> &nbsp;— add one
+</p>
+
+<h2><span class="swipe teal">The whole thing, one file</span></h2>
+
+<p>Make a folder, drop this in <code>main.go</code>, and that's the entire program. We'll read it
+piece by piece right after:</p>
+
+<div class="code-card"><span class="filename new">main.go</span>
+<pre><code class="lang-go" data-src="checkpoints:ch01/main.go">// linkboard — a tiny anonymous link board, chapter 1: everything in one file,
+// with the links kept in memory. No database yet (that's chapter 2).
+package main
+
+import (
+	"encoding/json"
+	"log"
+	"net/http"
+	"sync"
+)
+
+// Link is one submission on the board. The `json:"..."` tags decide the key
+// names in the JSON we send back.
+type Link struct {
+	ID    int64  `json:"id"`
+	Title string `json:"title"`
+	URL   string `json:"url"`
+	Votes int64  `json:"votes"`
+}
+
+// Our "database" for now: a slice in memory. A mutex guards it because the
+// server runs each request in its own goroutine, so two POSTs can arrive at
+// the same instant. (Goroutines &amp; mutexes: see the cheatsheet.)
+var (
+	mu     sync.Mutex
+	links  []Link
+	nextID int64 = 1
+)
+
+// listLinksHandler — GET /links
+func listLinksHandler(w http.ResponseWriter, r *http.Request) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(links)
+}
+
+// createLinkHandler — POST /links   Body: {"title": "...", "url": "..."}
+func createLinkHandler(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Title string `json:"title"`
+		URL   string `json:"url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&amp;input); err != nil {
+		http.Error(w, "body must be valid JSON", http.StatusBadRequest)
+		return
+	}
+
+	mu.Lock()
+	link := Link{ID: nextID, Title: input.Title, URL: input.URL}
+	nextID++
+	links = append(links, link)
+	mu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated) // 201
+	json.NewEncoder(w).Encode(link)
+}
+
+func main() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /links", listLinksHandler)
+	mux.HandleFunc("POST /links", createLinkHandler)
+
+	log.Println("linkboard listening on http://localhost:4000")
+	log.Fatal(http.ListenAndServe(":4000", mux))
+}</code></pre>
+</div>
+
+<div class="term-card"><div class="term-bar"><i></i><i></i><i></i><span>terminal 1</span></div>
+<pre><code class="lang-bash">$ go mod init linkboard
+$ go run .
+2026/07/07 17:47:02 linkboard listening on http://localhost:4000</code></pre>
+</div>
+
+<div class="term-card"><div class="term-bar"><i></i><i></i><i></i><span>terminal 2</span></div>
+<pre><code class="lang-bash"># nothing posted yet — an empty board:
+$ curl localhost:4000/links
+null
+
+# post a link (the -d flag sends a POST body):
+$ curl -X POST localhost:4000/links \
+    -d '{"title":"The Go Blog","url":"https://go.dev/blog"}'
+{"id":1,"title":"The Go Blog","url":"https://go.dev/blog","votes":0}
+
+$ curl -X POST localhost:4000/links \
+    -d '{"title":"gopherit ebook","url":"https://devthedeveloper.github.io/gocheatsheet/ebook/"}'
+{"id":2,"title":"gopherit ebook","url":"...","votes":0}
+
+# list them back:
+$ curl localhost:4000/links
+[{"id":1,"title":"The Go Blog",...},{"id":2,"title":"gopherit ebook",...}]</code></pre>
+</div>
+
+<span class="scribble o">that's a real, concurrent web server. you built an API! ⚡</span>
+
+<h2><span class="swipe pink">Reading it, three ideas at a time</span></h2>
+
+<h3>1. The handler — the shape of all Go web code</h3>
+<p>Look at <code>listLinksHandler</code> and <code>createLinkHandler</code>. Both have the same
+signature, and <span class="hl y">every web handler you ever write in Go looks like this</span>:</p>
+
+<div class="code-card"><span class="filename">the shape</span>
+<pre><code class="lang-go">func name(w http.ResponseWriter, r *http.Request) {
+	// r = the request the client sent   (read from it)
+	// w = your reply                     (write to it)
+}</code></pre>
+</div>
+
+<ul>
+  <li><strong class="pen-b">r</strong> is the incoming request — its body, URL, headers. You read from it.</li>
+  <li><strong class="pen-o">w</strong> is how you answer — set a header, a status code, write bytes.</li>
+</ul>
+
+<h3>2. Struct tags turn Go into JSON</h3>
+<p>The <code>Link</code> struct has little backtick tags: <code>`json:"title"`</code>. They rename
+the fields when Go converts to JSON — Go's <code>Title</code> becomes the key <code>"title"</code>.
+<code>json.NewEncoder(w).Encode(link)</code> writes the struct out as JSON;
+<code>json.NewDecoder(r.Body).Decode(&amp;input)</code> reads JSON back into a struct. That's the whole
+JSON story for now.</p>
+
+<h3>3. The router knows methods</h3>
+<p><code>mux.HandleFunc("POST /links", ...)</code> — since Go 1.22, the built-in router understands
+the <b>method + path</b> in one string. <code>GET /links</code> and <code>POST /links</code> are two
+different routes to two different functions. <span class="hl g">No third-party router needed</span> —
+this is the standard library.</p>
+
+<div class="box tip">
+  <span class="box-title">Why the mutex?</span>
+  <p>Go runs every request in its own lightweight thread (a <em>goroutine</em>), so two people could
+  <code>POST</code> at the same instant and both touch the <code>links</code> slice together —
+  a data race. The three lines of <code>sync.Mutex</code> (<code>mu.Lock()</code> …
+  <code>mu.Unlock()</code>) make sure only one goroutine edits the slice at a time. Curious how
+  goroutines work? That's a whole page on the <a href="../concurrency.html">cheatsheet</a> — but you
+  don't need the details to use this pattern. (Good news: in the next chapter the database takes over
+  this job and the mutex disappears.)</p>
+</div>
+
+<div class="box gotcha">
+  <span class="box-title">Why did the empty list say <code>null</code>?</span>
+  <p>An empty Go slice that was never filled is <code>nil</code>, and <code>nil</code> becomes JSON
+  <code>null</code>, not <code>[]</code>. Harmless here, but worth knowing — the moment we switch to a
+  database next chapter, the list comes back as a tidy <code>[]</code> instead.</p>
+</div>
+
+<div class="recap">
+<h2><span class="swipe">Pin to your brain 📌</span></h2>
+<ul class="checklist">
+  <li>A handler is <code>func(w http.ResponseWriter, r *http.Request)</code> — read <code>r</code>, write <code>w</code>.</li>
+  <li>Routes are <code>"METHOD /path"</code> on an <code>http.NewServeMux()</code> — std lib, no framework.</li>
+  <li>Struct tags map Go fields to JSON keys; <code>Encode</code> writes JSON, <code>Decode</code> reads it.</li>
+  <li>Set the status with <code>w.WriteHeader(...)</code> — <code>201 Created</code> for a new thing.</li>
+</ul>
+<p><b>Next up:</b> restart your server and watch every link vanish. Time to give them a permanent
+home.</p>
+</div>
+
+<nav class="booknav bottom">
+  <a href="index.html">← Cover</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch02.html">Ch 2 · Survive a Restart →</a>
+</nav>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 5 · Ship It + the Bridge — linkboard</title>
+<link rel="stylesheet" href="../ebook/fonts/fonts.css">
+<link rel="stylesheet" href="../ebook/notes.css">
+<script src="../ebook/notes.js" defer></script>
+</head>
+<body>
+<div class="sheet">
+
+<nav class="booknav">
+  <a href="ch04.html">← Ch 4 · Good API + Web Page</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="../ebook/index.html">📕 The Reddit book →</a>
+</nav>
+
+<header class="chapter-head">
+  <div class="ch-sticker" style="--sticker:#cdeeff"><small>chapter</small><span>5</span></div>
+  <div>
+    <h1>Ship It + the Bridge</h1>
+    <svg class="squiggle" viewBox="0 0 420 14" aria-hidden="true"><path d="M4 9 Q 40 2, 80 8 T 160 8 T 240 7 T 320 9 T 416 6" fill="none" stroke="#2f80ed" stroke-width="4" stroke-linecap="round"/></svg>
+    <p class="subtitle">one binary you can hand to anyone — and your on-ramp to the Reddit clone</p>
+  </div>
+</header>
+
+<div class="sticky">
+  <h4>In this chapter you'll learn ✍️</h4>
+  <ul>
+    <li>turning your code into one runnable file with <code>go build</code></li>
+    <li>building for other machines without leaving yours</li>
+    <li>exactly how every linkboard idea grows up in the Reddit book</li>
+  </ul>
+</div>
+
+<h2><span class="swipe">Ship it — one file, no runtime</span></h2>
+
+<p>Go's superpower: <code>go build</code> produces a <span class="hl y">single self-contained
+binary</span>. No interpreter, no <code>node_modules</code>, nothing to install on the server. Because
+our SQLite driver is pure Go, you can even build for a different operating system from your laptop:</p>
+
+<div class="term-card"><div class="term-bar"><i></i><i></i><i></i><span>terminal</span></div>
+<pre><code class="lang-bash"># build a binary for this machine:
+$ go build -o linkboard .
+$ ./linkboard
+2026/07/07 17:52:00 linkboard listening on http://localhost:4000
+
+# ...or cross-compile for a Linux server / a Raspberry Pi / a Mac:
+$ GOOS=linux  GOARCH=amd64 go build -o linkboard-linux .
+$ GOOS=linux  GOARCH=arm64 go build -o linkboard-pi    .
+$ GOOS=darwin GOARCH=arm64 go build -o linkboard-mac   .</code></pre>
+</div>
+
+<p>Copy that one file (and, when it runs, its <code>linkboard.db</code> and <code>index.html</code>)
+to any little server, run it behind an HTTPS proxy, and your board is on the internet. That's the
+whole deployment story for a Go app this size.</p>
+
+<div class="box tip">
+  <span class="box-title">You built all of this</span>
+  <p>Four small files: <code>main.go</code> (wiring), <code>store.go</code> (the database),
+  <code>handlers.go</code> (the web logic), <code>index.html</code> (the page). About 180 lines of Go.
+  A real, persistent, votable, browsable link board — and you can explain every line.</p>
+</div>
+
+<h2><span class="swipe teal">The bridge to your own Reddit 🌉</span></h2>
+
+<p>Here's the payoff. Everything you just learned is the <em>seed</em> of the
+<a href="../ebook/index.html">Go + REST — Build Your Own Reddit</a> book. That book builds
+<strong class="pen-o">gopherit</strong>, a full Reddit clone, and every one of its “big” ideas is just
+a linkboard idea, grown up:</p>
+
+<div class="tbl-scroll">
+<table class="notes">
+  <tr><th>In linkboard you learned…</th><th>…the Reddit book grows it into</th><th>Where</th></tr>
+  <tr><td>a handler reads <code>r</code>, writes <code>w</code></td><td>the same — you already have this reflex</td><td>everywhere</td></tr>
+  <tr><td>one <code>links</code> table</td><td>six tables (users, subreddits, posts, comments, votes, tokens) with foreign keys</td><td>Ch 5</td></tr>
+  <tr><td>data code in <code>store.go</code></td><td>a whole <code>store</code> package the handlers never bypass</td><td>Ch 5</td></tr>
+  <tr><td>anonymous votes</td><td>accounts + “one vote per person”, enforced by the database</td><td>Ch 6, 11</td></tr>
+  <tr><td>no login</td><td>register, password hashing (bcrypt), bearer-token login</td><td>Ch 6, 7</td></tr>
+  <tr><td>the CORS one-liner</td><td>a middleware “onion”: logging, panic recovery, CORS, auth</td><td>Ch 8</td></tr>
+  <tr><td>two <code>if</code> validation checks</td><td>a reusable validator that collects every problem at once</td><td>Ch 4</td></tr>
+  <tr><td><code>writeJSON</code> / <code>writeError</code></td><td>envelopes + a full family of status-code helpers</td><td>Ch 4</td></tr>
+  <tr><td><code>?sort=top|new</code></td><td>a “hot” ranking formula + pagination with metadata</td><td>Ch 10</td></tr>
+  <tr><td>a flat list of links</td><td>nested comment trees rebuilt in one pass</td><td>Ch 11</td></tr>
+  <tr><td><code>go run .</code></td><td>graceful shutdown, real tests, a production binary</td><td>Ch 12</td></tr>
+</table>
+</div>
+
+<p>Notice the shape of the columns: <span class="hl g">the left side is everything you now know</span>.
+The Reddit book isn't a new mountain — it's the same trail, one switchback higher. When you meet its
+<code>store</code> package, you'll think “oh, that's my <code>store.go</code> with more tables.” When
+you meet its middleware, you'll think “that's my CORS line, plus friends.”</p>
+
+<h2><span class="swipe pink">Two quick wins before you go</span></h2>
+
+<p>Want to cement it? Try these on linkboard first — each is a five-minute change and each is a
+preview of a Reddit-book idea:</p>
+<ul class="checklist todo">
+  <li><b>Add a <code>domain</code> to each link</b> (parse it from the URL, show it in the list) —
+      practice touching the struct, the SQL, and the frontend together.</li>
+  <li><b>Cap voting spam cheaply</b>: store a vote count per link per IP in a second tiny table.
+      You'll <em>feel</em> why real accounts are the clean answer — which is exactly Chapter 6.</li>
+</ul>
+
+<div class="sticky green">
+  <h4>You're ready 🚀</h4>
+  <p>You came in unsure you could build an API. You leave with one running on your machine that you
+  understand completely. The Reddit book is the same moves at a bigger scale — go build your own
+  Reddit, and this time the code will read like a language you already speak.</p>
+  <p style="margin-top:8px"><a href="../ebook/index.html"><b>Open “Build Your Own Reddit” →</b></a></p>
+</div>
+
+<div class="recap">
+<h2><span class="swipe">Pin to your brain 📌</span></h2>
+<ul class="checklist">
+  <li><code>go build</code> = one self-contained binary; <code>GOOS</code>/<code>GOARCH</code> cross-compile anywhere.</li>
+  <li>You built a real API + database + frontend in ~180 lines — and can explain all of it.</li>
+  <li>Every Reddit-book concept is a linkboard concept grown up. Same trail, higher switchback.</li>
+</ul>
+</div>
+
+<nav class="booknav bottom">
+  <a href="ch04.html">← Ch 4 · Good API + Web Page</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="../ebook/index.html">📕 Build Your Own Reddit →</a>
+</nav>
+
+</div>
+</body>
+</html>

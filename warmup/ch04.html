@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 4 · Be a Good API + a Web Page — linkboard</title>
+<link rel="stylesheet" href="../ebook/fonts/fonts.css">
+<link rel="stylesheet" href="../ebook/notes.css">
+<script src="../ebook/notes.js" defer></script>
+</head>
+<body>
+<div class="sheet">
+
+<nav class="booknav">
+  <a href="ch03.html">← Ch 3 · Votes &amp; Sorting</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch05.html">Ch 5 · Ship It →</a>
+</nav>
+
+<header class="chapter-head">
+  <div class="ch-sticker" style="--sticker:#ffe1c9"><small>chapter</small><span>4</span></div>
+  <div>
+    <h1>Be a Good API + a Web Page</h1>
+    <svg class="squiggle" viewBox="0 0 420 14" aria-hidden="true"><path d="M4 9 Q 40 2, 80 8 T 160 8 T 240 7 T 320 9 T 416 6" fill="none" stroke="#ff5722" stroke-width="4" stroke-linecap="round"/></svg>
+    <p class="subtitle">tidy JSON errors, a little validation, and a real frontend served from Go</p>
+  </div>
+</header>
+
+<div class="sticky">
+  <h4>In this chapter you'll learn ✍️</h4>
+  <ul>
+    <li>two tiny helpers so every response looks the same</li>
+    <li>validation: reject junk before it reaches the database</li>
+    <li>one line of CORS — the “any frontend can call me” switch</li>
+    <li>serving a 30-line web page from the same Go server</li>
+  </ul>
+</div>
+
+<h2><span class="swipe">Two helpers, then everything's tidy</span></h2>
+
+<p>Until now each handler set headers and encoded JSON by hand, and errors came out as plain text.
+Let's fix both with two small helpers, and move all the handlers into their own file,
+<code>handlers.go</code>. Here's the whole file:</p>
+
+<div class="code-card"><span class="filename new">handlers.go</span>
+<pre><code class="lang-go" data-src="checkpoints:ch04/handlers.go">package main
+
+import (
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strconv"
+	"strings"
+)
+
+// homeHandler serves the single-page frontend at "/".
+func homeHandler(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "index.html")
+}
+
+// listLinksHandler — GET /links?sort=new|top
+func listLinksHandler(w http.ResponseWriter, r *http.Request) {
+	links, err := listLinks(r.URL.Query().Get("sort"))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load links")
+		return
+	}
+	writeJSON(w, http.StatusOK, links)
+}
+
+// createLinkHandler — POST /links   Body: {"title": "...", "url": "..."}
+func createLinkHandler(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Title string `json:"title"`
+		URL   string `json:"url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&amp;input); err != nil {
+		writeError(w, http.StatusBadRequest, "body must be valid JSON")
+		return
+	}
+
+	// Validate: a title, and a url that actually looks like one.
+	input.Title = strings.TrimSpace(input.Title)
+	if input.Title == "" || len(input.Title) &gt; 200 {
+		writeError(w, http.StatusUnprocessableEntity, "title must be 1-200 characters")
+		return
+	}
+	if !strings.HasPrefix(input.URL, "http://") &amp;&amp; !strings.HasPrefix(input.URL, "https://") {
+		writeError(w, http.StatusUnprocessableEntity, "url must start with http:// or https://")
+		return
+	}
+
+	link, err := insertLink(input.Title, input.URL)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not save link")
+		return
+	}
+	writeJSON(w, http.StatusCreated, link)
+}
+
+// voteHandler — POST /links/{id}/vote
+func voteHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "no such link")
+		return
+	}
+
+	votes, err := voteLink(id)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "no such link")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not vote")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{"id": id, "votes": votes})
+}
+
+// writeJSON sends v as JSON with the given status code. The CORS header lets a
+// frontend hosted somewhere else call this API from the browser.
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(v)
+}
+
+// writeError sends {"error": "..."} with the given status code.
+func writeError(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, map[string]string{"error": msg})
+}</code></pre>
+</div>
+
+<p>What changed and why:</p>
+<ul>
+  <li><strong><code>writeJSON</code> / <code>writeError</code></strong> — every response now goes through
+      these. Errors always look like <code>{"error": "..."}</code>, so
+      <span class="hl y">a frontend needs just one way to handle any error</span>.</li>
+  <li><strong>Validation</strong> in <code>createLinkHandler</code>: a title that's present and not too
+      long, and a url that actually starts with <code>http</code>. Bad input gets
+      <code>422 Unprocessable</code> with a helpful message, instead of saving garbage.</li>
+  <li><strong>The CORS line</strong> in <code>writeJSON</code> —
+      <code>Access-Control-Allow-Origin: *</code> — tells browsers that a web page hosted
+      <em>anywhere</em> is allowed to call this API. You don't strictly need it when the page and API
+      share a server (like ours), but it's the one line that lets someone host their own frontend
+      elsewhere and still talk to your board.</li>
+</ul>
+
+<div class="box tip">
+  <span class="box-title">Simple on purpose</span>
+  <p>These are <em>deliberately</em> tiny — a couple of <code>if</code> checks, two 5-line helpers.
+  The Reddit book grows them into a reusable validator and a full set of error types. You don't need
+  that yet; you need to feel how the pieces fit. Small first, fancy later.</p>
+</div>
+
+<h2><span class="swipe teal">main.go is now just wiring</span></h2>
+
+<p>With handlers in their own file, <code>main.go</code> shrinks to “open the database, list the
+routes, start the server” — plus one new route that serves our web page at <code>/</code>:</p>
+
+<div class="code-card"><span class="filename">main.go</span>
+<pre><code class="lang-go" data-src="checkpoints:ch04/main.go">// linkboard, chapter 4: a friendlier API (JSON errors + validation) and a tiny
+// web page served right from the same server. main.go is now just wiring.
+package main
+
+import (
+	"log"
+	"net/http"
+)
+
+func main() {
+	if err := openDB("linkboard.db"); err != nil {
+		log.Fatal(err)
+	}
+	log.Println("database ready: linkboard.db")
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", homeHandler) // the web page, only at "/"
+	mux.HandleFunc("GET /links", listLinksHandler)
+	mux.HandleFunc("POST /links", createLinkHandler)
+	mux.HandleFunc("POST /links/{id}/vote", voteHandler)
+
+	log.Println("linkboard listening on http://localhost:4000")
+	log.Fatal(http.ListenAndServe(":4000", mux))
+}</code></pre>
+</div>
+
+<p><code>GET /{$}</code> is a special pattern: the <code>{$}</code> means “match <em>only</em> the exact
+path <code>/</code>”, so it serves the page at the root without swallowing <code>/links</code>.</p>
+
+<h2><span class="swipe pink">The 30-second frontend</span></h2>
+
+<p>Save this as <code>index.html</code> next to your Go files. It's plain HTML and vanilla JavaScript —
+it <code>fetch</code>es your API, lists the links, and wires up the post form and vote buttons:</p>
+
+<div class="code-card"><span class="filename new">index.html</span>
+<pre><code class="lang-html" data-src="checkpoints:ch04/index.html">&lt;!doctype html&gt;
+&lt;html lang="en"&gt;
+&lt;meta charset="utf-8"&gt;
+&lt;title&gt;linkboard&lt;/title&gt;
+&lt;style&gt;
+  body{font:16px/1.5 system-ui,sans-serif;max-width:640px;margin:40px auto;padding:0 16px;color:#1b2b34}
+  h1{margin-bottom:2px}
+  p.sub{color:#6b7a82;margin-top:0}
+  form{display:flex;gap:8px;margin:22px 0}
+  input{flex:1;padding:9px;border:1px solid #ccd;border-radius:8px}
+  button{padding:9px 14px;border:0;border-radius:8px;background:#e25c00;color:#fff;font-weight:600;cursor:pointer}
+  ul{list-style:none;padding:0}
+  li{display:flex;gap:10px;align-items:center;margin:10px 0}
+  .vote{background:#f1f3f5;color:#e25c00;min-width:64px}
+  a{color:#124a63;text-decoration:none}
+  a:hover{text-decoration:underline}
+&lt;/style&gt;
+&lt;h1&gt;🔗 linkboard&lt;/h1&gt;
+&lt;p class="sub"&gt;The tiny board you built in Go.&lt;/p&gt;
+&lt;form id="post-form"&gt;
+  &lt;input id="title" placeholder="Title" required&gt;
+  &lt;input id="url" type="url" placeholder="https://..." required&gt;
+  &lt;button&gt;Post&lt;/button&gt;
+&lt;/form&gt;
+&lt;ul id="list"&gt;&lt;/ul&gt;
+&lt;script&gt;
+async function load() {
+  const res = await fetch('/links?sort=top');
+  const links = await res.json();
+  document.getElementById('list').innerHTML = links.map(l =&gt;
+    `&lt;li&gt;&lt;button class="vote" onclick="vote(${l.id})"&gt;▲ ${l.votes}&lt;/button&gt;` +
+    `&lt;a href="${l.url}"&gt;${l.title}&lt;/a&gt;&lt;/li&gt;`).join('');
+}
+async function vote(id) {
+  await fetch('/links/' + id + '/vote', {method: 'POST'});
+  load();
+}
+document.getElementById('post-form').addEventListener('submit', async (e) =&gt; {
+  e.preventDefault();
+  await fetch('/links', {method: 'POST', body: JSON.stringify({
+    title: document.getElementById('title').value,
+    url: document.getElementById('url').value,
+  })});
+  e.target.reset();
+  load();
+});
+load();
+&lt;/script&gt;</code></pre>
+</div>
+
+<h2><span class="swipe green">Open it in a browser 🎉</span></h2>
+
+<p>Run <code>go run .</code>, visit <span class="hl g">http://localhost:4000</span>, and there it is —
+a working site you built end to end, backend and front:</p>
+
+<div class="code-card" style="padding:14px;text-align:center">
+  <img src="img/linkboard.png" alt="the linkboard web page: a title, a post form, and links with vote buttons"
+       style="max-width:100%;border-radius:10px;border:1px solid #d8d2ec">
+</div>
+
+<div class="term-card"><div class="term-bar"><i></i><i></i><i></i><span>terminal — the API is still there too</span></div>
+<pre><code class="lang-bash"># junk is now politely rejected:
+$ curl -X POST localhost:4000/links -d '{"title":"  ","url":"https://x.com"}'
+{"error":"title must be 1-200 characters"}
+
+$ curl -X POST localhost:4000/links -d '{"title":"nope","url":"ftp://x"}'
+{"error":"url must start with http:// or https://"}
+
+$ curl -X POST localhost:4000/links -d '{oops'
+{"error":"body must be valid JSON"}
+
+# and the CORS header rides along on every JSON response:
+$ curl -i localhost:4000/links | grep -i access-control
+Access-Control-Allow-Origin: *</code></pre>
+</div>
+
+<span class="scribble o">backend + database + frontend, all yours. take a screenshot, you earned it. 📸</span>
+
+<div class="recap">
+<h2><span class="swipe">Pin to your brain 📌</span></h2>
+<ul class="checklist">
+  <li>Funnel every response through <code>writeJSON</code>/<code>writeError</code> — one shape, less repetition.</li>
+  <li>Validate input and return <code>422</code> with a message; bad JSON is <code>400</code>.</li>
+  <li>One CORS header lets browser frontends on other origins call your API.</li>
+  <li><code>GET /{$}</code> serves the page only at <code>/</code>; <code>http.ServeFile</code> sends the file.</li>
+</ul>
+<p><b>Next up:</b> turn it into a single shippable program — and see the map from this little board to
+the full Reddit clone.</p>
+</div>
+
+<nav class="booknav bottom">
+  <a href="ch03.html">← Ch 3 · Votes &amp; Sorting</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch05.html">Ch 5 · Ship It →</a>
+</nav>
+
+</div>
+</body>
+</html>

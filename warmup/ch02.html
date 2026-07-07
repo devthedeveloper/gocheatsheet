@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 2 · Survive a Restart — linkboard</title>
+<link rel="stylesheet" href="../ebook/fonts/fonts.css">
+<link rel="stylesheet" href="../ebook/notes.css">
+<script src="../ebook/notes.js" defer></script>
+</head>
+<body>
+<div class="sheet">
+
+<nav class="booknav">
+  <a href="ch01.html">← Ch 1 · One File</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch03.html">Ch 3 · Votes &amp; Sorting →</a>
+</nav>
+
+<header class="chapter-head">
+  <div class="ch-sticker" style="--sticker:#d9f7cd"><small>chapter</small><span>2</span></div>
+  <div>
+    <h1>Survive a Restart</h1>
+    <svg class="squiggle" viewBox="0 0 420 14" aria-hidden="true"><path d="M4 9 Q 40 2, 80 8 T 160 8 T 240 7 T 320 9 T 416 6" fill="none" stroke="#2fa15c" stroke-width="4" stroke-linecap="round"/></svg>
+    <p class="subtitle">from a slice in memory to a real database in one file — SQLite</p>
+  </div>
+</header>
+
+<div class="sticky">
+  <h4>In this chapter you'll learn ✍️</h4>
+  <ul>
+    <li>why an in-memory app forgets everything on restart</li>
+    <li>SQLite: a whole database in a single file, no install</li>
+    <li>the three moves: <code>Exec</code>, <code>QueryRow</code>, and the <code>Query</code> row-loop</li>
+    <li>splitting the project into <code>main.go</code> + <code>store.go</code></li>
+  </ul>
+</div>
+
+<h2><span class="swipe">Feel the problem first</span></h2>
+
+<p>Start last chapter's server, post a couple of links, then stop it (<code>Ctrl+C</code>) and start
+it again. Everything's gone. Your links lived in a Go slice, and a slice lives in memory, and memory
+<span class="hl y">evaporates when the process exits</span>. Real apps need to <em>remember</em>. Enter
+the database.</p>
+
+<div class="box tip">
+  <span class="box-title">Why SQLite (and this driver)</span>
+  <p>Postgres and MySQL are separate servers you install and run. <strong>SQLite is just a file</strong>
+  — <code>linkboard.db</code> — and the engine runs inside your program. Nothing to install, and it's
+  the same database inside your phone and browser. We use the <code>modernc.org/sqlite</code> driver,
+  which is <span class="hl g">pure Go</span>, so it builds anywhere with no C compiler. One command
+  adds it:</p>
+</div>
+
+<div class="term-card"><div class="term-bar"><i></i><i></i><i></i><span>terminal</span></div>
+<pre><code class="lang-bash">$ go get modernc.org/sqlite
+$ go mod tidy</code></pre>
+</div>
+
+<h2><span class="swipe teal">A new file: store.go</span></h2>
+
+<p>All the database code goes in its own file, <code>store.go</code>. Keeping data code apart from
+web code is a habit that pays off forever (the Reddit book leans on it hard). Here's the whole file —
+notice every function is small:</p>
+
+<div class="code-card"><span class="filename new">store.go</span>
+<pre><code class="lang-go" data-src="checkpoints:ch02/store.go">package main
+
+import (
+	"database/sql"
+
+	_ "modernc.org/sqlite" // registers the "sqlite" driver with database/sql
+)
+
+// Link is one submission on the board. It gained a CreatedAt field now that a
+// real database can stamp the time for us.
+type Link struct {
+	ID        int64  `json:"id"`
+	Title     string `json:"title"`
+	URL       string `json:"url"`
+	Votes     int64  `json:"votes"`
+	CreatedAt string `json:"created_at"`
+}
+
+// db is the one shared connection pool. A package-level variable is fine for an
+// app this small; the Reddit book shows how bigger apps pass it around instead.
+var db *sql.DB
+
+// openDB connects to the SQLite file and creates the links table if it's not
+// there yet. Call it once, at start-up.
+func openDB(path string) error {
+	var err error
+	db, err = sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		return err
+	}
+	if err := db.Ping(); err != nil {
+		return err
+	}
+
+	_, err = db.Exec(`
+        CREATE TABLE IF NOT EXISTS links (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            title      TEXT    NOT NULL,
+            url        TEXT    NOT NULL,
+            votes      INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+        )`)
+	return err
+}
+
+// insertLink saves a new link and returns it, fully filled in by the database
+// (id and created_at come back via RETURNING).
+func insertLink(title, url string) (Link, error) {
+	var l Link
+	err := db.QueryRow(`
+        INSERT INTO links (title, url)
+        VALUES (?, ?)
+        RETURNING id, title, url, votes, created_at`,
+		title, url,
+	).Scan(&amp;l.ID, &amp;l.Title, &amp;l.URL, &amp;l.Votes, &amp;l.CreatedAt)
+	return l, err
+}
+
+// listLinks returns every link, newest first.
+func listLinks() ([]Link, error) {
+	rows, err := db.Query(`
+        SELECT id, title, url, votes, created_at
+        FROM links
+        ORDER BY id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	links := []Link{}
+	for rows.Next() {
+		var l Link
+		if err := rows.Scan(&amp;l.ID, &amp;l.Title, &amp;l.URL, &amp;l.Votes, &amp;l.CreatedAt); err != nil {
+			return nil, err
+		}
+		links = append(links, l)
+	}
+	return links, rows.Err()
+}</code></pre>
+</div>
+
+<p>Three database moves show up here, and they're <em>all</em> the SQL-plumbing you need for the rest
+of the book:</p>
+
+<div class="tbl-scroll">
+<table class="notes">
+  <tr><th>Move</th><th>When</th><th>Seen in</th></tr>
+  <tr><td><code>db.Exec(...)</code></td><td>run SQL that returns no rows (like <code>CREATE TABLE</code>)</td><td><code>openDB</code></td></tr>
+  <tr><td><code>db.QueryRow(...).Scan(...)</code></td><td>get exactly one row back</td><td><code>insertLink</code></td></tr>
+  <tr><td><code>db.Query(...)</code> + loop</td><td>get many rows back</td><td><code>listLinks</code></td></tr>
+</table>
+</div>
+
+<ul>
+  <li><strong>The blank import</strong> <code>_ "modernc.org/sqlite"</code> — the underscore means
+      “run this package's setup (it registers the <code>"sqlite"</code> driver) but I won't call it
+      directly.” Your code only ever talks to the standard <code>database/sql</code>. <em>(The Reddit
+      book's chapter 5 goes deeper if you're curious.)</em></li>
+  <li><strong><code>RETURNING</code></strong> in <code>insertLink</code> hands back the columns the
+      database filled in — the auto <code>id</code> and the <code>created_at</code> timestamp — in the
+      same round trip. No second query.</li>
+  <li><strong>The row-loop</strong> in <code>listLinks</code>: <code>defer rows.Close()</code>, scan
+      each row, then check <code>rows.Err()</code> at the end. You'll write this exact shape countless
+      times.</li>
+</ul>
+
+<div class="box gotcha">
+  <span class="box-title">Two row-loop habits worth burning in</span>
+  <p><b><code>defer rows.Close()</code></b> right after a successful <code>Query</code> — forget it and
+  you leak database connections.<br>
+  <b><code>return links, rows.Err()</code></b> at the end — the loop stopping could mean “no more rows”
+  <em>or</em> “something broke mid-read”; only <code>rows.Err()</code> tells you which.</p>
+</div>
+
+<h2><span class="swipe pink">main.go gets simpler</span></h2>
+
+<p>The handlers now just call the store, and the slice and mutex are <em>gone</em> — the database
+handles concurrent access for us. Here's the updated <code>main.go</code>:</p>
+
+<div class="code-card"><span class="filename">main.go</span>
+<pre><code class="lang-go" data-src="checkpoints:ch02/main.go">// linkboard, chapter 2: the links now live in a SQLite file, so they survive a
+// restart. The in-memory slice and its mutex are gone — the database handles
+// concurrent access for us.
+package main
+
+import (
+	"encoding/json"
+	"log"
+	"net/http"
+)
+
+// listLinksHandler — GET /links
+func listLinksHandler(w http.ResponseWriter, r *http.Request) {
+	links, err := listLinks()
+	if err != nil {
+		http.Error(w, "could not load links", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(links)
+}
+
+// createLinkHandler — POST /links   Body: {"title": "...", "url": "..."}
+func createLinkHandler(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Title string `json:"title"`
+		URL   string `json:"url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&amp;input); err != nil {
+		http.Error(w, "body must be valid JSON", http.StatusBadRequest)
+		return
+	}
+
+	link, err := insertLink(input.Title, input.URL)
+	if err != nil {
+		http.Error(w, "could not save link", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated) // 201
+	json.NewEncoder(w).Encode(link)
+}
+
+func main() {
+	if err := openDB("linkboard.db"); err != nil {
+		log.Fatal(err)
+	}
+	log.Println("database ready: linkboard.db")
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /links", listLinksHandler)
+	mux.HandleFunc("POST /links", createLinkHandler)
+
+	log.Println("linkboard listening on http://localhost:4000")
+	log.Fatal(http.ListenAndServe(":4000", mux))
+}</code></pre>
+</div>
+
+<h2><span class="swipe green">Prove it remembers</span></h2>
+
+<div class="term-card"><div class="term-bar"><i></i><i></i><i></i><span>terminal</span></div>
+<pre><code class="lang-bash">$ go run .
+2026/07/07 17:49:40 database ready: linkboard.db
+2026/07/07 17:49:40 linkboard listening on http://localhost:4000
+
+# empty board is now a tidy [] , not null:
+$ curl localhost:4000/links
+[]
+
+$ curl -X POST localhost:4000/links -d '{"title":"The Go Blog","url":"https://go.dev/blog"}'
+{"id":1,"title":"The Go Blog","url":"https://go.dev/blog","votes":0,"created_at":"2026-07-07T17:49:41Z"}
+
+$ curl -X POST localhost:4000/links -d '{"title":"Go by Example","url":"https://gobyexample.com"}'
+# ...
+
+# NOW STOP THE SERVER (Ctrl+C) AND START IT AGAIN:
+$ go run .
+$ curl localhost:4000/links
+[{"id":2,"title":"Go by Example",...,"created_at":"2026-07-07T17:49:41Z"},
+ {"id":1,"title":"The Go Blog",...,"created_at":"2026-07-07T17:49:41Z"}]
+# still there! 🎉  (and a linkboard.db file appeared next to your code)</code></pre>
+</div>
+
+<span class="scribble t">restart-proof. your board now has a memory. 💾</span>
+
+<div class="box tip">
+  <span class="box-title">Peek inside the file</span>
+  <p><code>linkboard.db</code> is a real SQLite database. Open it with any SQLite browser (like
+  <a href="https://sqlitebrowser.org/">DB Browser for SQLite</a>) and watch rows appear as you post.
+  Add <code>*.db</code> to a <code>.gitignore</code> — databases don't belong in git.</p>
+</div>
+
+<div class="recap">
+<h2><span class="swipe">Pin to your brain 📌</span></h2>
+<ul class="checklist">
+  <li>In-memory = forgotten on restart. A database = remembered.</li>
+  <li>SQLite is one file, engine inside your process; the modernc driver needs no C compiler.</li>
+  <li>Three moves: <code>Exec</code> (no rows), <code>QueryRow().Scan()</code> (one row), <code>Query</code> + loop (many).</li>
+  <li>Row loop: <code>defer rows.Close()</code>, scan, then <code>rows.Err()</code>.</li>
+  <li>Data code lives in <code>store.go</code>, apart from the web code.</li>
+</ul>
+<p><b>Next up:</b> a link board no one can vote on is just a list. Let's add upvotes — and make the
+best links float to the top.</p>
+</div>
+
+<nav class="booknav bottom">
+  <a href="ch01.html">← Ch 1 · One File</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch03.html">Ch 3 · Votes &amp; Sorting →</a>
+</nav>
+
+</div>
+</body>
+</html>

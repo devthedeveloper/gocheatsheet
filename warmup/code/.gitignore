@@ -1,0 +1,5 @@
+# build outputs and local databases
+linkboard
+*.db
+*.db-shm
+*.db-wal

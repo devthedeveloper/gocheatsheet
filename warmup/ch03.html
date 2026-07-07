@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 3 · Votes &amp; Sorting — linkboard</title>
+<link rel="stylesheet" href="../ebook/fonts/fonts.css">
+<link rel="stylesheet" href="../ebook/notes.css">
+<script src="../ebook/notes.js" defer></script>
+</head>
+<body>
+<div class="sheet">
+
+<nav class="booknav">
+  <a href="ch02.html">← Ch 2 · Survive a Restart</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch04.html">Ch 4 · Good API + Web Page →</a>
+</nav>
+
+<header class="chapter-head">
+  <div class="ch-sticker" style="--sticker:#e6dbff"><small>chapter</small><span>3</span></div>
+  <div>
+    <h1>Votes &amp; Sorting</h1>
+    <svg class="squiggle" viewBox="0 0 420 14" aria-hidden="true"><path d="M4 9 Q 40 2, 80 8 T 160 8 T 240 7 T 320 9 T 416 6" fill="none" stroke="#7c5cff" stroke-width="4" stroke-linecap="round"/></svg>
+    <p class="subtitle">upvotes with one SQL statement, and let the best links float up</p>
+  </div>
+</header>
+
+<div class="sticky">
+  <h4>In this chapter you'll learn ✍️</h4>
+  <ul>
+    <li>a path parameter: <code>/links/{id}/vote</code></li>
+    <li><code>UPDATE ... RETURNING</code> — change a row and read it back at once</li>
+    <li>returning <code>404</code> when the id doesn't exist</li>
+    <li>safe sorting from a query string (<code>?sort=top</code>)</li>
+  </ul>
+</div>
+
+<h2><span class="swipe">One new endpoint</span></h2>
+
+<p>A link aggregator lives and dies by its votes. We'll add one endpoint —
+<span class="ep post">POST /links/{id}/vote</span> — that bumps a link's score by one and returns the
+new total. And we'll teach <code>GET /links</code> a new trick: <code>?sort=top</code> to order by
+votes, or <code>?sort=new</code> (the default) for newest-first.</p>
+
+<h2><span class="swipe teal">store.go grows two things</span></h2>
+
+<p><code>listLinks</code> now takes a <code>sort</code> argument, and there's a new
+<code>voteLink</code>. Here's the full file:</p>
+
+<div class="code-card"><span class="filename">store.go</span>
+<pre><code class="lang-go" data-src="checkpoints:ch03/store.go">package main
+
+import (
+	"database/sql"
+
+	_ "modernc.org/sqlite" // registers the "sqlite" driver with database/sql
+)
+
+// Link is one submission on the board.
+type Link struct {
+	ID        int64  `json:"id"`
+	Title     string `json:"title"`
+	URL       string `json:"url"`
+	Votes     int64  `json:"votes"`
+	CreatedAt string `json:"created_at"`
+}
+
+// db is the one shared connection pool.
+var db *sql.DB
+
+// openDB connects to the SQLite file and creates the links table if needed.
+func openDB(path string) error {
+	var err error
+	db, err = sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		return err
+	}
+	if err := db.Ping(); err != nil {
+		return err
+	}
+
+	_, err = db.Exec(`
+        CREATE TABLE IF NOT EXISTS links (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            title      TEXT    NOT NULL,
+            url        TEXT    NOT NULL,
+            votes      INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+        )`)
+	return err
+}
+
+// insertLink saves a new link and returns it, fully filled in by the database.
+func insertLink(title, url string) (Link, error) {
+	var l Link
+	err := db.QueryRow(`
+        INSERT INTO links (title, url)
+        VALUES (?, ?)
+        RETURNING id, title, url, votes, created_at`,
+		title, url,
+	).Scan(&amp;l.ID, &amp;l.Title, &amp;l.URL, &amp;l.Votes, &amp;l.CreatedAt)
+	return l, err
+}
+
+// listLinks returns every link. sort is "top" (most votes) or anything else
+// for newest-first. The user's sort choice only *picks between* our two
+// hard-coded ORDER BY strings — it never becomes part of the SQL itself.
+func listLinks(sort string) ([]Link, error) {
+	orderBy := "id DESC" // the default: newest first
+	if sort == "top" {
+		orderBy = "votes DESC, id DESC"
+	}
+
+	rows, err := db.Query(`
+        SELECT id, title, url, votes, created_at
+        FROM links
+        ORDER BY ` + orderBy)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	links := []Link{}
+	for rows.Next() {
+		var l Link
+		if err := rows.Scan(&amp;l.ID, &amp;l.Title, &amp;l.URL, &amp;l.Votes, &amp;l.CreatedAt); err != nil {
+			return nil, err
+		}
+		links = append(links, l)
+	}
+	return links, rows.Err()
+}
+
+// voteLink adds one upvote to a link and returns its new total.
+// It returns sql.ErrNoRows when no link has that id.
+func voteLink(id int64) (int64, error) {
+	var votes int64
+	err := db.QueryRow(`
+        UPDATE links SET votes = votes + 1
+        WHERE id = ?
+        RETURNING votes`,
+		id,
+	).Scan(&amp;votes)
+	return votes, err
+}</code></pre>
+</div>
+
+<ul>
+  <li><strong><code>voteLink</code></strong> is one statement:
+      <code>UPDATE links SET votes = votes + 1 WHERE id = ? RETURNING votes</code>. It increments and
+      hands back the new number in a single trip. If no row has that id, <code>Scan</code> gets
+      <code>sql.ErrNoRows</code> — that's our “link not found” signal.</li>
+  <li><strong><code>listLinks(sort)</code></strong> picks one of two hard-coded
+      <code>ORDER BY</code> strings based on the user's choice.</li>
+</ul>
+
+<div class="box warn">
+  <span class="box-title">The one SQL rule you must not break</span>
+  <p>Notice the sort works by <em>choosing between our own strings</em> — the user's
+  <code>?sort=</code> value never gets pasted into the SQL. <span class="hl y">Never build SQL by
+  gluing in user input</span> (that's the classic “SQL injection” hole). Real values always travel as
+  <code>?</code> placeholders, like <code>id</code> in <code>voteLink</code>. A user can <em>pick</em>
+  from your menu; they can't <em>write</em> the SQL.</p>
+</div>
+
+<h2><span class="swipe pink">main.go: the vote handler</span></h2>
+
+<p>The new handler reads the <code>{id}</code> from the path, calls <code>voteLink</code>, and turns
+<code>sql.ErrNoRows</code> into a clean <code>404</code>:</p>
+
+<div class="code-card"><span class="filename">main.go</span>
+<pre><code class="lang-go" data-src="checkpoints:ch03/main.go">// linkboard, chapter 3: upvotes and sorting. New endpoint POST /links/{id}/vote,
+// and GET /links now understands ?sort=top or ?sort=new.
+package main
+
+import (
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"log"
+	"net/http"
+	"strconv"
+)
+
+// listLinksHandler — GET /links?sort=new|top
+func listLinksHandler(w http.ResponseWriter, r *http.Request) {
+	sort := r.URL.Query().Get("sort") // "" when absent -&gt; newest first
+	links, err := listLinks(sort)
+	if err != nil {
+		http.Error(w, "could not load links", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(links)
+}
+
+// createLinkHandler — POST /links   Body: {"title": "...", "url": "..."}
+func createLinkHandler(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Title string `json:"title"`
+		URL   string `json:"url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&amp;input); err != nil {
+		http.Error(w, "body must be valid JSON", http.StatusBadRequest)
+		return
+	}
+
+	link, err := insertLink(input.Title, input.URL)
+	if err != nil {
+		http.Error(w, "could not save link", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated) // 201
+	json.NewEncoder(w).Encode(link)
+}
+
+// voteHandler — POST /links/{id}/vote
+func voteHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.Error(w, "no such link", http.StatusNotFound)
+		return
+	}
+
+	votes, err := voteLink(id)
+	if errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "no such link", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "could not vote", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]int64{"id": id, "votes": votes})
+}
+
+func main() {
+	if err := openDB("linkboard.db"); err != nil {
+		log.Fatal(err)
+	}
+	log.Println("database ready: linkboard.db")
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /links", listLinksHandler)
+	mux.HandleFunc("POST /links", createLinkHandler)
+	mux.HandleFunc("POST /links/{id}/vote", voteHandler)
+
+	log.Println("linkboard listening on http://localhost:4000")
+	log.Fatal(http.ListenAndServe(":4000", mux))
+}</code></pre>
+</div>
+
+<ul>
+  <li><code>r.PathValue("id")</code> pulls the <code>{id}</code> out of the URL as a string;
+      <code>strconv.ParseInt</code> turns it into a number.</li>
+  <li><code>errors.Is(err, sql.ErrNoRows)</code> is how you ask “was this the not-found error?” —
+      it becomes <code>404 Not Found</code>.</li>
+</ul>
+
+<h2><span class="swipe green">Vote and watch it sort</span></h2>
+
+<div class="term-card"><div class="term-bar"><i></i><i></i><i></i><span>terminal</span></div>
+<pre><code class="lang-bash"># (three links posted: 1 The Go Blog, 2 Go by Example, 3 Effective Go)
+
+# upvote link 2 three times, link 3 once:
+$ curl -X POST localhost:4000/links/2/vote
+{"id":2,"votes":1}
+$ curl -X POST localhost:4000/links/2/vote   # ...votes:2
+$ curl -X POST localhost:4000/links/2/vote   # ...votes:3
+$ curl -X POST localhost:4000/links/3/vote
+{"id":3,"votes":1}
+
+# sort=top: most votes first —
+$ curl "localhost:4000/links?sort=top"
+[{"id":2,"title":"Go by Example","votes":3,...},
+ {"id":3,"title":"Effective Go","votes":1,...},
+ {"id":1,"title":"The Go Blog","votes":0,...}]
+
+# default (new): newest first —
+$ curl "localhost:4000/links"
+# -> ["Effective Go", "Go by Example", "The Go Blog"]
+
+# vote on a link that doesn't exist -> 404:
+$ curl -o /dev/null -w '%{http_code}\n' -X POST localhost:4000/links/999/vote
+404</code></pre>
+</div>
+
+<span class="scribble v">that's the beating heart of Hacker News, Reddit, Product Hunt — you just built it. 🔥</span>
+
+<div class="sticky orange">
+  <h4>Wait — can I vote a hundred times? 🤔</h4>
+  <p>Yep. Right now votes are <b>anonymous</b>, so nothing stops one person spamming the button. That's
+  fine for a warm-up — and it's <em>exactly</em> the gap the Reddit book fills: once you have user
+  accounts, you can enforce “one vote per person” with a clever database trick. That's the whole
+  reason accounts exist. One thing at a time. 🙂</p>
+</div>
+
+<div class="recap">
+<h2><span class="swipe">Pin to your brain 📌</span></h2>
+<ul class="checklist">
+  <li>Path params: <code>{id}</code> in the route, <code>r.PathValue("id")</code> to read it.</li>
+  <li><code>UPDATE ... RETURNING</code> changes a row and reads it back in one statement.</li>
+  <li><code>errors.Is(err, sql.ErrNoRows)</code> → <code>404</code>.</li>
+  <li>User input may <em>select</em> from your hard-coded SQL; it must never <em>become</em> SQL. Values go through <code>?</code>.</li>
+</ul>
+<p><b>Next up:</b> our errors are plain text and anyone can post junk. Let's make the API polite —
+and then put a real web page in front of it.</p>
+</div>
+
+<nav class="booknav bottom">
+  <a href="ch02.html">← Ch 2 · Survive a Restart</a>
+  <span class="spacer"></span>
+  <a class="toc-link" href="index.html">☰ contents</a>
+  <span class="spacer"></span>
+  <a href="ch04.html">Ch 4 · Good API + Web Page →</a>
+</nav>
+
+</div>
+</body>
+</html>
