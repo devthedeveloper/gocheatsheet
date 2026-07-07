@@ -7,9 +7,8 @@ import "net/http"
 func (app *application) routes() http.Handler {
 	mux := http.NewServeMux()
 
-	// Health & metrics
+	// Health
 	mux.HandleFunc("GET /api/v1/healthz", app.healthzHandler)
-	mux.HandleFunc("GET /metrics", app.metricsHandler)
 
 	// Users & auth
 	mux.HandleFunc("POST /api/v1/users", app.registerUserHandler)
@@ -31,8 +30,7 @@ func (app *application) routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/posts/{id}/vote", app.requireAuth(app.votePostHandler))
 	mux.HandleFunc("POST /api/v1/comments/{id}/vote", app.requireAuth(app.voteCommentHandler))
 
-	// The middleware onion, outermost first: recover from panics, count metrics,
-	// log every request, rate-limit abusive IPs (cheap 429 before any real
-	// work), add CORS headers, then identify the caller.
-	return app.recoverPanic(app.metrics(app.logRequests(app.rateLimit(app.enableCORS(app.authenticate(mux))))))
+	// The middleware onion, outermost first: recover from panics, log
+	// every request, add CORS headers, then identify the caller.
+	return app.recoverPanic(app.logRequests(app.enableCORS(app.authenticate(mux))))
 }
